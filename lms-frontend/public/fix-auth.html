@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fix GenZEd Authentication</title>
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            padding: 20px; 
+            max-width: 700px; 
+            margin: 0 auto;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        button { 
+            padding: 15px 30px; 
+            background: #10b981; 
+            color: white; 
+            border: none; 
+            border-radius: 10px; 
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            margin: 10px;
+            transition: all 0.3s ease;
+        }
+        button:hover { 
+            background: #059669; 
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(16, 185, 129, 0.4);
+        }
+        button.danger { 
+            background: #dc2626; 
+        }
+        button.danger:hover { 
+            background: #b91c1c; 
+            box-shadow: 0 5px 15px rgba(220, 38, 38, 0.4);
+        }
+        .success { 
+            color: #10b981; 
+            margin: 15px 0; 
+            padding: 10px;
+            background: rgba(16, 185, 129, 0.1);
+            border-radius: 8px;
+        }
+        .error { 
+            color: #ef4444; 
+            margin: 15px 0; 
+            padding: 10px;
+            background: rgba(239, 68, 68, 0.1);
+            border-radius: 8px;
+        }
+        .info {
+            background: rgba(59, 130, 246, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border-left: 4px solid #3b82f6;
+        }
+        .steps {
+            text-align: left;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        .step {
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+        }
+        .step-number {
+            background: #3b82f6;
+            color: white;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+            font-weight: bold;
+        }
+        .current-issue {
+            background: rgba(220, 38, 38, 0.1);
+            border: 1px solid rgba(220, 38, 38, 0.3);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>🔧 GenZEd LMS - Authentication Fix</h2>
+        <p>You're experiencing authentication issues. Let's fix this step by step!</p>
+        
+        <div class="current-issue">
+            <strong>🔍 Current Issue Detected:</strong>
+            <br>Your browser has corrupted authentication data in localStorage. This is preventing login and causing redirect loops.
+        </div>
+        
+        <div class="info">
+            <strong>What's happening:</strong> The system finds stored authentication data but the token is invalid, causing the backend to reject requests with 403 Forbidden errors.
+        </div>
+        
+        <div class="steps">
+            <h3>📋 What this will do:</h3>
+            <div class="step">
+                <div class="step-number">1</div>
+                <span>Clear all corrupted GenZEd authentication data</span>
+            </div>
+            <div class="step">
+                <div class="step-number">2</div>
+                <span>Remove invalid tokens and user data</span>
+            </div>
+            <div class="step">
+                <div class="step-number">3</div>
+                <span>Test backend API connectivity</span>
+            </div>
+            <div class="step">
+                <div class="step-number">4</div>
+                <span>Redirect to login for fresh authentication</span>
+            </div>
+        </div>
+        
+        <button onclick="clearAndTest()" class="success">🚀 Clear Data & Test APIs</button>
+        <button onclick="clearOnly()" class="danger">🗑️ Clear Data Only</button>
+        
+        <div id="status"></div>
+        
+        <div class="info">
+            <strong>After fixing:</strong> Visit <a href="http://localhost:8084/login" style="color: #fbbf24;">http://localhost:8084/login</a> and try logging in fresh.
+        </div>
+    </div>
+    
+    <script>
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = `<div class="${type}">${message}</div>`;
+        }
+        
+        async function testAPI() {
+            try {
+                showStatus('🔄 Testing backend API connectivity...', 'info');
+                
+                // Test registration API
+                const registerResponse = await fetch('http://localhost:5001/api/auth/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        name: 'API Test User',
+                        email: 'apitest' + Date.now() + '@example.com',
+                        password: 'password123',
+                        role: 'student'
+                    })
+                });
+                
+                // Test login API
+                const loginResponse = await fetch('http://localhost:5001/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        email: 'admin@genzed.com',
+                        password: 'password'
+                    })
+                });
+                
+                if (registerResponse.ok && loginResponse.ok) {
+                    return '✅ Backend APIs are working perfectly!';
+                } else {
+                    return '❌ Backend API issues detected';
+                }
+                
+            } catch (error) {
+                return '❌ Network error: ' + error.message;
+            }
+        }
+        
+        async function clearAndTest() {
+            try {
+                showStatus('🧹 Clearing authentication data...', 'info');
+                
+                // Clear all GenZEd related localStorage items
+                const keysToRemove = [
+                    'genzed_token',
+                    'genzed_user', 
+                    'genzed_auth_timestamp',
+                    'genzed_session_active',
+                    'genzed-auth-store'
+                ];
+                
+                keysToRemove.forEach(key => {
+                    localStorage.removeItem(key);
+                });
+                
+                // Also clear any other auth-related items
+                Object.keys(localStorage).forEach(key => {
+                    if (key.includes('auth') || key.includes('token') || key.includes('genzed')) {
+                        localStorage.removeItem(key);
+                    }
+                });
+                
+                showStatus('✅ Authentication data cleared successfully!', 'success');
+                
+                // Test APIs
+                const apiTest = await testAPI();
+                showStatus(apiTest, apiTest.includes('✅') ? 'success' : 'error');
+                
+                // Redirect to login page after 3 seconds
+                setTimeout(() => {
+                    window.location.href = 'http://localhost:8084/login';
+                }, 3000);
+                
+            } catch (error) {
+                showStatus('❌ Error: ' + error.message, 'error');
+            }
+        }
+        
+        function clearOnly() {
+            try {
+                // Clear all GenZEd related localStorage items
+                const keysToRemove = [
+                    'genzed_token',
+                    'genzed_user', 
+                    'genzed_auth_timestamp',
+                    'genzed_session_active',
+                    'genzed-auth-store'
+                ];
+                
+                keysToRemove.forEach(key => {
+                    localStorage.removeItem(key);
+                });
+                
+                // Also clear any other auth-related items
+                Object.keys(localStorage).forEach(key => {
+                    if (key.includes('auth') || key.includes('token') || key.includes('genzed')) {
+                        localStorage.removeItem(key);
+                    }
+                });
+                
+                showStatus('✅ Authentication data cleared! Click the button above to test APIs.', 'success');
+                
+            } catch (error) {
+                showStatus('❌ Error clearing data: ' + error.message, 'error');
+            }
+        }
+        
+        // Show current localStorage status on load
+        window.addEventListener('load', () => {
+            const keys = Object.keys(localStorage).filter(key => 
+                key.includes('genzed') || key.includes('auth') || key.includes('token')
+            );
+            
+            if (keys.length > 0) {
+                showStatus('⚠️ Found stored authentication data: ' + keys.join(', '), 'error');
+            } else {
+                showStatus('✅ No stored authentication data found', 'success');
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,615 @@
+import React, { useState } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { useAllUsers, useUpdateUserStatus } from '@/hooks/api';
+import {
+  DollarSign,
+  Search,
+  Filter,
+  Eye,
+  CheckCircle,
+  XCircle,
+  Clock,
+  AlertCircle,
+  Loader2,
+  TrendingUp,
+  Calendar,
+  Building2,
+  CreditCard,
+  User,
+  Download,
+  Send,
+} from 'lucide-react';
+
+interface Payout {
+  id: string;
+  teacherId: string;
+  teacher: {
+    name: string;
+    email: string;
+    bankAccountNumber?: string;
+    bankIfscCode?: string;
+    upiId?: string;
+  };
+  amount: number;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  requestedDate: Date;
+  processedDate?: Date;
+  payoutMethod: 'bank_transfer' | 'upi';
+  transactionId?: string;
+  notes?: string;
+}
+
+const PayoutsManagement: React.FC = () => {
+  const { data: users, isLoading: usersLoading } = useAllUsers();
+  const updateUserStatusMutation = useUpdateUserStatus();
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [selectedPayout, setSelectedPayout] = useState<Payout | null>(null);
+  const [showProcessDialog, setShowProcessDialog] = useState(false);
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState('');
+
+  // Generate payouts data from teachers
+  const payouts = React.useMemo(() => {
+    if (!users) return [];
+
+    return users
+      .filter(user => user.role === 'teacher')
+      .map(teacher => ({
+        id: `payout_${teacher.id}`,
+        teacherId: teacher.id,
+        teacher: {
+          name: teacher.name,
+          email: teacher.email,
+          bankAccountNumber: teacher.bankAccountNumber,
+          bankIfscCode: teacher.bankIfscCode,
+          upiId: teacher.upiId,
+        },
+        amount: Math.floor(Math.random() * 50000) + 10000, // Mock earnings
+        status: (['pending', 'processing', 'completed', 'failed'] as const)[
+          Math.floor(Math.random() * 4)
+        ],
+        requestedDate: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000),
+        processedDate:
+          Math.random() > 0.5
+            ? new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000)
+            : undefined,
+        payoutMethod: teacher.upiId ? 'upi' : 'bank_transfer',
+        transactionId:
+          Math.random() > 0.3
+            ? `TXN${Math.random().toString(36).substr(2, 9).toUpperCase()}`
+            : undefined,
+        notes: Math.random() > 0.7 ? 'Monthly payout' : undefined,
+      }));
+  }, [users]);
+
+  // Filter payouts
+  const filteredPayouts = React.useMemo(() => {
+    return payouts
+      .filter(payout => {
+        const matchesSearch =
+          payout.teacher.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          payout.teacher.email.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesStatus = statusFilter === 'all' || payout.status === statusFilter;
+        return matchesSearch && matchesStatus;
+      })
+      .map(payout => ({
+        ...payout,
+        formattedAmount: `₹${payout.amount.toLocaleString()}`,
+        formattedRequestedDate: payout.requestedDate.toLocaleDateString(),
+        formattedProcessedDate: payout.processedDate?.toLocaleDateString(),
+      }));
+  }, [payouts, searchTerm, statusFilter]);
+
+  // Statistics
+  const stats = React.useMemo(() => {
+    const total = payouts.length;
+    const pending = payouts.filter(p => p.status === 'pending').length;
+    const processing = payouts.filter(p => p.status === 'processing').length;
+    const completed = payouts.filter(p => p.status === 'completed').length;
+    const failed = payouts.filter(p => p.status === 'failed').length;
+    const totalAmount = payouts
+      .filter(p => p.status === 'completed')
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    return { total, pending, processing, completed, failed, totalAmount };
+  }, [payouts]);
+
+  const handleProcessPayout = async (payoutId: string) => {
+    try {
+      // API call to process payout
+      console.log('Processing payout:', payoutId);
+      setShowProcessDialog(false);
+    } catch (error) {
+      console.error('Failed to process payout:', error);
+    }
+  };
+
+  const handleRejectPayout = async (payoutId: string) => {
+    try {
+      // API call to reject payout
+      console.log('Rejecting payout:', payoutId);
+      setShowRejectDialog(false);
+      setRejectionReason('');
+    } catch (error) {
+      console.error('Failed to reject payout:', error);
+    }
+  };
+
+  if (usersLoading) {
+    return (
+      <div className='min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 relative overflow-hidden flex items-center justify-center'>
+        <div className='absolute inset-0 bg-[radial-gradient(circle_at_20%_80%,_rgba(59,130,246,0.15)_0%,_transparent_50%)]' />
+        <div className='absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,_rgba(139,92,246,0.15)_0%,_transparent_50%)]' />
+        <div className='text-center'>
+          <Loader2 className='w-8 h-8 animate-spin mx-auto mb-4 text-blue-600' />
+          <p className='text-gray-600'>Loading payouts...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className='min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 relative overflow-hidden'>
+      <div className='absolute inset-0 bg-[radial-gradient(circle_at_20%_80%,_rgba(59,130,246,0.15)_0%,_transparent_50%)]' />
+      <div className='absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,_rgba(139,92,246,0.15)_0%,_transparent_50%)]' />
+      <div className='relative z-10 p-6'>
+      {/* Header */}
+      <div className='mb-8'>
+        <div className='bg-gradient-to-br from-slate-800 via-purple-800 to-slate-900 rounded-2xl p-8 text-white shadow-2xl relative overflow-hidden'>
+          <div className='absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(255,255,255,0.1)_0%,_transparent_70%)]'></div>
+          <div className='flex items-center justify-between relative z-10'>
+            <div>
+              <h1 className='text-3xl font-bold mb-2'>Payouts Management</h1>
+              <p className='text-slate-200 text-lg'>Manage teacher payouts and earnings</p>
+            </div>
+            <div className='hidden md:block'>
+              <div className='w-20 h-20 bg-white/10 rounded-full flex items-center justify-center backdrop-blur-sm'>
+                <Building2 className='w-10 h-10 text-white' />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6 mb-8'>
+        <Card className='border-0 shadow-xl bg-gray-800/90 backdrop-blur-sm hover:shadow-2xl transition-all duration-300'>
+          <CardContent className='p-6'>
+            <div className='flex items-center justify-between'>
+              <div>
+                <p className='text-sm font-medium text-gray-300 mb-1'>Total Payouts</p>
+                <p className='text-3xl font-bold text-white'>{stats.total}</p>
+              </div>
+              <DollarSign className='w-8 h-8 text-blue-400' />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className='border-0 shadow-xl bg-gray-800/90 backdrop-blur-sm hover:shadow-2xl transition-all duration-300'>
+          <CardContent className='p-6'>
+            <div className='flex items-center justify-between'>
+              <div>
+                <p className='text-sm font-medium text-gray-300 mb-1'>Pending</p>
+                <p className='text-3xl font-bold text-yellow-400'>{stats.pending}</p>
+              </div>
+              <Clock className='w-8 h-8 text-yellow-400' />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className='border-0 shadow-xl bg-gray-800/90 backdrop-blur-sm hover:shadow-2xl transition-all duration-300'>
+          <CardContent className='p-6'>
+            <div className='flex items-center justify-between'>
+              <div>
+                <p className='text-sm font-medium text-gray-300 mb-1'>Processing</p>
+                <p className='text-3xl font-bold text-blue-400'>{stats.processing}</p>
+              </div>
+              <Send className='w-8 h-8 text-blue-400' />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className='border-0 shadow-xl bg-gray-800/90 backdrop-blur-sm hover:shadow-2xl transition-all duration-300'>
+          <CardContent className='p-6'>
+            <div className='flex items-center justify-between'>
+              <div>
+                <p className='text-sm font-medium text-gray-300 mb-1'>Completed</p>
+                <p className='text-3xl font-bold text-green-400'>{stats.completed}</p>
+              </div>
+              <CheckCircle className='w-8 h-8 text-green-400' />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className='border-0 shadow-xl bg-gray-800/90 backdrop-blur-sm hover:shadow-2xl transition-all duration-300'>
+          <CardContent className='p-6'>
+            <div className='flex items-center justify-between'>
+              <div>
+                <p className='text-sm font-medium text-gray-300 mb-1'>Failed</p>
+                <p className='text-3xl font-bold text-red-400'>{stats.failed}</p>
+              </div>
+              <XCircle className='w-8 h-8 text-red-400' />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className='border-0 shadow-xl bg-gray-800/90 backdrop-blur-sm hover:shadow-2xl transition-all duration-300'>
+          <CardContent className='p-6'>
+            <div className='flex items-center justify-between'>
+              <div>
+                <p className='text-sm font-medium text-gray-300 mb-1'>Total Paid</p>
+                <p className='text-3xl font-bold text-emerald-400'>
+                  ₹{stats.totalAmount.toLocaleString()}
+                </p>
+              </div>
+              <TrendingUp className='w-8 h-8 text-emerald-400' />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filters */}
+      <Card className='border-0 shadow-xl bg-gray-800/90 backdrop-blur-sm mb-6'>
+        <CardContent className='p-6'>
+          <div className='flex flex-col md:flex-row gap-4 items-center'>
+            <div className='relative flex-1'>
+              <Search className='absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4' />
+              <Input
+                placeholder='Search by teacher name or email...'
+                value={searchTerm}
+                onChange={e => {
+                  setSearchTerm(e.target.value);
+                }}
+                className='pl-10 bg-gray-700 border-gray-600 text-white'
+              />
+            </div>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className='w-full md:w-48 bg-gray-700 border-gray-600 text-white'>
+                <SelectValue placeholder='Filter by status' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>All Status</SelectItem>
+                <SelectItem value='pending'>Pending</SelectItem>
+                <SelectItem value='processing'>Processing</SelectItem>
+                <SelectItem value='completed'>Completed</SelectItem>
+                <SelectItem value='failed'>Failed</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Payouts Table */}
+      <Card className='border-0 shadow-xl bg-gray-800/90 backdrop-blur-sm'>
+        <CardHeader>
+          <CardTitle className='text-white'>Payout Requests</CardTitle>
+          <CardDescription className='text-gray-300'>
+            Manage teacher payout requests and processing
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className='overflow-x-auto'>
+            <Table>
+              <TableHeader>
+                <TableRow className='border-gray-700'>
+                  <TableHead className='text-gray-300'>Teacher</TableHead>
+                  <TableHead className='text-gray-300'>Amount</TableHead>
+                  <TableHead className='text-gray-300'>Method</TableHead>
+                  <TableHead className='text-gray-300'>Status</TableHead>
+                  <TableHead className='text-gray-300'>Requested</TableHead>
+                  <TableHead className='text-gray-300'>Processed</TableHead>
+                  <TableHead className='text-gray-300'>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredPayouts.map(payout => (
+                  <TableRow key={payout.id} className='border-gray-700'>
+                    <TableCell>
+                      <div className='flex items-center gap-3'>
+                        <div className='w-10 h-10 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center'>
+                          <User className='w-5 h-5 text-white' />
+                        </div>
+                        <div>
+                          <p className='font-medium text-white'>{payout.teacher.name}</p>
+                          <p className='text-sm text-gray-400'>{payout.teacher.email}</p>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className='text-white font-bold'>{payout.formattedAmount}</div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        className={`${
+                          payout.payoutMethod === 'bank_transfer' ? 'bg-blue-600' : 'bg-green-600'
+                        } text-white border-0`}
+                      >
+                        {payout.payoutMethod === 'bank_transfer' ? (
+                          <>
+                            <Building2 className='w-3 h-3 mr-1' />
+                            Bank Transfer
+                          </>
+                        ) : (
+                          <>
+                            <CreditCard className='w-3 h-3 mr-1' />
+                            UPI
+                          </>
+                        )}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        className={`${
+                          payout.status === 'completed'
+                            ? 'bg-green-600'
+                            : payout.status === 'pending'
+                              ? 'bg-yellow-600'
+                              : payout.status === 'processing'
+                                ? 'bg-blue-600'
+                                : 'bg-red-600'
+                        } text-white border-0`}
+                      >
+                        {payout.status === 'completed' && <CheckCircle className='w-3 h-3 mr-1' />}
+                        {payout.status === 'pending' && <Clock className='w-3 h-3 mr-1' />}
+                        {payout.status === 'processing' && <Send className='w-3 h-3 mr-1' />}
+                        {payout.status === 'failed' && <XCircle className='w-3 h-3 mr-1' />}
+                        {payout.status.charAt(0).toUpperCase() + payout.status.slice(1)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className='text-white'>{payout.formattedRequestedDate}</div>
+                    </TableCell>
+                    <TableCell>
+                      <div className='text-white'>{payout.formattedProcessedDate || '-'}</div>
+                      {payout.transactionId && (
+                        <div className='text-sm text-gray-400'>{payout.transactionId}</div>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className='flex items-center gap-2'>
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          className='border-gray-600 text-gray-300 hover:bg-gray-700'
+                        >
+                          <Eye className='w-4 h-4' />
+                        </Button>
+
+                        {payout.status === 'pending' && (
+                          <>
+                            <Button
+                              size='sm'
+                              className='bg-green-600 hover:bg-green-700'
+                              onClick={() => {
+                                setSelectedPayout(payout);
+                                setShowProcessDialog(true);
+                              }}
+                            >
+                              <CheckCircle className='w-4 h-4 mr-1' />
+                              Process
+                            </Button>
+
+                            <Button
+                              size='sm'
+                              variant='outline'
+                              className='border-red-600 text-red-400 hover:bg-red-900/20'
+                              onClick={() => {
+                                setSelectedPayout(payout);
+                                setShowRejectDialog(true);
+                              }}
+                            >
+                              <XCircle className='w-4 h-4 mr-1' />
+                              Reject
+                            </Button>
+                          </>
+                        )}
+
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          className='border-gray-600 text-gray-300 hover:bg-gray-700'
+                        >
+                          <Download className='w-4 h-4' />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Process Payout Dialog */}
+      <Dialog open={showProcessDialog} onOpenChange={setShowProcessDialog}>
+        <DialogContent className='bg-gray-800 border-gray-700'>
+          <DialogHeader>
+            <DialogTitle className='text-white'>Process Payout</DialogTitle>
+            <DialogDescription className='text-gray-300'>
+              Process payout of {selectedPayout?.formattedAmount} to {selectedPayout?.teacher.name}?
+            </DialogDescription>
+          </DialogHeader>
+          <div className='py-4'>
+            <div className='bg-blue-900/20 border border-blue-700 rounded-lg p-4'>
+              <h4 className='font-medium text-blue-300 mb-2'>Payout Details</h4>
+              <p className='text-white'>Teacher: {selectedPayout?.teacher.name}</p>
+              <p className='text-gray-400'>Amount: {selectedPayout?.formattedAmount}</p>
+              <p className='text-gray-400'>
+                Method: {selectedPayout?.payoutMethod === 'bank_transfer' ? 'Bank Transfer' : 'UPI'}
+              </p>
+              {selectedPayout?.payoutMethod === 'bank_transfer' && (
+                <>
+                  <p className='text-gray-400'>
+                    Account: {selectedPayout?.teacher.bankAccountNumber}
+                  </p>
+                  <p className='text-gray-400'>IFSC: {selectedPayout?.teacher.bankIfscCode}</p>
+                </>
+              )}
+              {selectedPayout?.payoutMethod === 'upi' && (
+                <p className='text-gray-400'>UPI ID: {selectedPayout?.teacher.upiId}</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => {
+                setShowProcessDialog(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              className='bg-green-600 hover:bg-green-700'
+              onClick={() => selectedPayout && handleProcessPayout(selectedPayout.id)}
+            >
+              <CheckCircle className='w-4 h-4 mr-2' />
+              Process Payout
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject Payout Dialog */}
+      <Dialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
+        <DialogContent className='bg-gray-800 border-gray-700'>
+          <DialogHeader>
+            <DialogTitle className='text-white'>Reject Payout</DialogTitle>
+            <DialogDescription className='text-gray-300'>
+              Reject payout request from {selectedPayout?.teacher.name}?
+            </DialogDescription>
+          </DialogHeader>
+          <div className='py-4'>
+            <div className='space-y-4'>
+              <div className='bg-red-900/20 border border-red-700 rounded-lg p-4'>
+                <h4 className='font-medium text-red-300 mb-2'>Payout Details</h4>
+                <p className='text-white'>Teacher: {selectedPayout?.teacher.name}</p>
+                <p className='text-gray-400'>Amount: {selectedPayout?.formattedAmount}</p>
+                <p className='text-gray-400'>Reason for rejection will be sent to teacher</p>
+              </div>
+              <div>
+                <Label htmlFor='reason' className='text-gray-300'>
+                  Reason for rejection
+                </Label>
+                <textarea
+                  id='reason'
+                  placeholder='Enter reason for rejection...'
+                  value={rejectionReason}
+                  onChange={e => {
+                    setRejectionReason(e.target.value);
+                  }}
+                  className='w-full bg-gray-700 border border-gray-600 text-white rounded-md px-3 py-2 mt-1'
+                  rows={3}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => {
+                setShowRejectDialog(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              className='bg-red-600 hover:bg-red-700'
+              onClick={() => selectedPayout && handleRejectPayout(selectedPayout.id)}
+            >
+              <XCircle className='w-4 h-4 mr-2' />
+              Reject Payout
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payout Summary */}
+      <Card className='border-0 shadow-xl bg-gray-800/90 backdrop-blur-sm mt-6'>
+        <CardHeader>
+          <CardTitle className='text-white'>Payout Summary</CardTitle>
+          <CardDescription className='text-gray-300'>
+            Teacher earnings and payout analytics
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className='grid grid-cols-1 md:grid-cols-3 gap-6'>
+            <div className='bg-gradient-to-br from-green-900/50 to-green-800/50 rounded-xl p-6 border border-green-700'>
+              <div className='flex items-center justify-between'>
+                <div>
+                  <p className='text-sm font-medium text-green-300 mb-1'>Total Processed</p>
+                  <p className='text-3xl font-bold text-white'>
+                    ₹{stats.totalAmount.toLocaleString()}
+                  </p>
+                </div>
+                <CheckCircle className='w-8 h-8 text-green-400' />
+              </div>
+            </div>
+
+            <div className='bg-gradient-to-br from-blue-900/50 to-blue-800/50 rounded-xl p-6 border border-blue-700'>
+              <div className='flex items-center justify-between'>
+                <div>
+                  <p className='text-sm font-medium text-blue-300 mb-1'>Pending Amount</p>
+                  <p className='text-3xl font-bold text-white'>
+                    ₹
+                    {payouts
+                      .filter(p => p.status === 'pending')
+                      .reduce((sum, p) => sum + p.amount, 0)
+                      .toLocaleString()}
+                  </p>
+                </div>
+                <Clock className='w-8 h-8 text-blue-400' />
+              </div>
+            </div>
+
+            <div className='bg-gradient-to-br from-purple-900/50 to-purple-800/50 rounded-xl p-6 border border-purple-700'>
+              <div className='flex items-center justify-between'>
+                <div>
+                  <p className='text-sm font-medium text-purple-300 mb-1'>Avg Payout</p>
+                  <p className='text-3xl font-bold text-white'>
+                    ₹{stats.total > 0 ? Math.round(stats.totalAmount / stats.completed) : 0}
+                  </p>
+                </div>
+                <TrendingUp className='w-8 h-8 text-purple-400' />
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      </div>
+    </div>
+  );
+};
+
+export default PayoutsManagement;

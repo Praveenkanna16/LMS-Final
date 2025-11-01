@@ -1,0 +1,2733 @@
+import type {
+  User,
+  Batch,
+  Course,
+  Payment,
+  DashboardStats,
+  Assessment,
+  Progress,
+  ProgressStats,
+  BatchProgress,
+} from '@/types';
+import { sessionManager } from '@/lib/sessionManager';
+import { toast } from 'sonner';
+
+// API Base URL
+const API_BASE_URL = 'http://localhost:5001/api';
+
+interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  message?: string;
+  status?: number;
+}
+
+interface LiveClass {
+  id: string;
+  batchId: string;
+  title: string;
+  description?: string;
+  startTime: string;
+  duration?: number;
+  isRecorded?: boolean;
+  status: string;
+  teacherId: string;
+  studentCount: number;
+  recordingUrl?: string;
+}
+
+interface _AdminDashboardData {
+  stats: {
+    totalStudents: number;
+    totalTeachers: number;
+    totalCourses: number;
+    totalRevenue: number;
+    activeClasses: number;
+    pendingPayouts: number;
+  };
+  recentActivity: ActivityLog[];
+  charts: {
+    students: DashboardChartData[];
+    teachers: DashboardChartData[];
+    courses: DashboardChartData[];
+    revenue: {
+      monthly: DashboardChartData[];
+      byCategory: Record<string, number>;
+    };
+  };
+}
+
+interface ActivityLog {
+  id: string;
+  type: string;
+  message: string;
+  timestamp: string;
+  userId?: string;
+}
+
+interface DashboardChartData {
+  date: string;
+  value: number;
+}
+
+interface Notification {
+  id: string;
+  title: string;
+  message: string;
+  type: 'system' | 'course' | 'payment' | 'achievement' | 'reminder';
+  target: 'all' | 'teachers' | 'students' | 'specific';
+  recipientIds?: string[];
+  scheduledAt?: string;
+  sentAt?: string;
+  status: 'draft' | 'scheduled' | 'sent' | 'failed';
+}
+
+interface _TableInfo {
+  name: string;
+  displayName: string;
+  icon: string;
+  recordCount: number;
+  lastUpdated: string;
+}
+
+class ApiService {
+  private controller: AbortController | null = null;
+  private lastToastTime: Map<string, number> = new Map();
+  private TOAST_COOLDOWN = 5000; // 5 seconds between same error toasts
+
+  private shouldShowToast(errorKey: string): boolean {
+    const now = Date.now();
+    const lastTime = this.lastToastTime.get(errorKey) ?? 0;
+    if (now - lastTime > this.TOAST_COOLDOWN) {
+      this.lastToastTime.set(errorKey, now);
+      return true;
+    }
+    return false;
+  }
+
+  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    const token = sessionManager.getToken();
+
+    const config: RequestInit = {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { Authorization: `Bearer ${token}` }),
+        ...options.headers,
+      },
+      ...options,
+    };
+
+    const url = `${API_BASE_URL}${endpoint}`;
+    console.warn('🔄 API Request:', {
+      url,
+      method: options.method ?? 'GET',
+      headers: config.headers,
+      body: options.body,
+    });
+
+    // Cancel any pending request only for non-GET requests
+    // GET requests should be able to run in parallel
+    const method = options.method ?? 'GET';
+    
+    if (method !== 'GET') {
+      if (this.controller) {
+        this.controller.abort();
+      }
+      this.controller = new AbortController();
+      config.signal = this.controller.signal;
+    } else {
+      // For GET requests, create a separate controller to allow parallel requests
+      const controller = new AbortController();
+      config.signal = controller.signal;
+    }
+
+    try {
+      const response = await fetch(url, config);
+      console.warn('📥 API Response:', {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries()),
+      });
+
+      if (!response.ok) {
+        let error: ApiResponse<never>;
+        try {
+          error = (await response.json()) as unknown as ApiResponse<never>;
+        } catch {
+          error = { success: false, error: 'API request failed' };
+        }
+        console.error('❌ API Error Response:', error);
+
+        // Handle different error status codes
+        switch (response.status) {
+          case 401: {
+            // Special-case for login endpoint: surface error to UI instead of nuking session
+            if (endpoint.startsWith('/auth/login')) {
+              return {
+                success: false,
+                error: error.error ?? 'Invalid email or password',
+                status: response.status,
+              } as T;
+            }
+
+            // Special-case for /auth/me endpoint: don't redirect immediately
+            // This allows the auth store to handle verification failures gracefully
+            if (endpoint.startsWith('/auth/me')) {
+              console.warn('🔄 /auth/me returned 401 - session may be expired');
+              throw new Error('Session verification failed');
+            }
+
+            // Unauthorized - clear session and redirect to login for all other endpoints
+            console.warn('🚨 401 Unauthorized - clearing session');
+            sessionManager.clearSession();
+            toast.error('Session expired. Please log in again.');
+            // Force page reload to clear all state
+            window.location.href = '/login';
+            break;
+          }
+
+          case 403:
+            // Forbidden
+            toast.error('You do not have permission to perform this action.');
+            break;
+
+          case 404:
+            // Not found
+            toast.error('The requested resource was not found.');
+            break;
+
+          case 422:
+            // Validation error - return the error instead of throwing
+            return {
+              success: false,
+              error: error.error ?? 'Validation failed',
+              status: response.status,
+            } as T;
+
+          case 429:
+            // Rate limited
+            toast.error('Too many requests. Please try again later.');
+            break;
+
+          case 500:
+          case 502:
+          case 503:
+          case 504:
+            // Server errors - only show toast if not shown recently
+            if (this.shouldShowToast('server-error')) {
+              toast.error('Server error. Please try again later.');
+            }
+            break;
+
+          default:
+            // Other errors
+            toast.error(error.error ?? `Request failed: ${response.statusText}`);
+        }
+
+        // For validation errors (400, 422), return the error instead of throwing
+        if (response.status === 400 || response.status === 422) {
+          return {
+            success: false,
+            error: error.error ?? 'Validation failed',
+            status: response.status,
+          } as T;
+        }
+
+        // For server errors (500+), throw
+        throw new Error(error.error ?? `API request failed: ${response.statusText}`);
+      }
+
+      const data: unknown = await response.json();
+      console.warn('✅ API Success Response:', data);
+      return data as T;
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          console.warn('🛑 API Request cancelled');
+          // Throw the AbortError so React Query can handle it properly
+          throw error;
+        }
+
+        console.error('💥 API Request Failed:', error);
+
+        // Network errors or other unexpected errors - only show toast if not shown recently
+        if (this.shouldShowToast('network-error')) {
+          toast.error('Network error. Please check your connection and try again.');
+        }
+
+        throw error;
+      }
+
+      throw new Error('Unknown API error');
+    }
+  }
+
+  /**
+   * Cancel any pending API requests
+   */
+  public cancelRequests(): void {
+    if (this.controller) {
+      this.controller.abort();
+      this.controller = null;
+    }
+  }
+
+  // Authentication
+  async getMe(): Promise<ApiResponse<User>> {
+    return await this.request('/auth/me');
+  }
+
+  async login(
+    email: string,
+    password: string
+  ): Promise<ApiResponse<{ user: User; token: string }>> {
+    return await this.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+  }
+
+  async register(userData: {
+    name: string;
+    email: string;
+    password: string;
+    role?: string;
+  }): Promise<ApiResponse<{ user: User; token: string }>> {
+    return await this.request('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(userData),
+    });
+  }
+
+  // Student APIs
+  async getMyBatches(): Promise<ApiResponse<Batch[]>> {
+    return await this.request('/batches/my-batches');
+  }
+
+  async getMySchedule(): Promise<ApiResponse<{ startTime: Date; endTime: Date; topic: string }[]>> {
+    return await this.request('/batches/upcoming-sessions');
+  }
+
+  async getRecentActivities(): Promise<ApiResponse<Array<{
+    id: string;
+    title: string;
+    time: string;
+    type: string;
+  }>>> {
+    try {
+      const response = await this.request('/student/dashboard/overview') as ApiResponse<any>;
+      return {
+        success: true,
+        data: response.data?.recentActivities || []
+      };
+    } catch (error) {
+      console.error('Failed to fetch recent activities:', error);
+      return { success: true, data: [] };
+    }
+  }
+
+  async getUpcomingAssignments(): Promise<ApiResponse<Array<{
+    id: string;
+    title: string;
+    dueDate: string;
+    courseTitle: string;
+    status: string;
+  }>>> {
+    try {
+      // For now, fetch from assessments API
+      const response = await this.getAssessments({ status: 'pending' });
+      const assessments = Array.isArray(response.data) ? response.data : [];
+      return {
+        success: true,
+        data: assessments.map((assessment: any) => ({
+          id: assessment.id || assessment._id,
+          title: assessment.title,
+          dueDate: assessment.dueDate || assessment.endDate,
+          courseTitle: assessment.courseTitle || assessment.course?.title || 'Course',
+          status: assessment.status || 'pending'
+        }))
+      };
+    } catch (error) {
+      console.error('Failed to fetch upcoming assignments:', error);
+      return { success: true, data: [] };
+    }
+  }
+
+  async getMyTeacherBatches(): Promise<ApiResponse<Batch[]>> {
+    return await this.request('/batches/teacher/my-batches');
+  }
+
+  async createSchedule(scheduleData: {
+    batchId: string;
+    startTime: string;
+    endTime: string;
+    topic: string;
+    description?: string;
+    meetingType?: string;
+    meetingLink?: string;
+    maxParticipants?: number;
+  }): Promise<ApiResponse<unknown>> {
+    // Calculate duration in minutes
+    const startDate = new Date(scheduleData.startTime);
+    const endDate = new Date(scheduleData.endTime);
+    const duration = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60));
+
+    return await this.request('/live-classes/create-meeting', {
+      method: 'POST',
+      body: JSON.stringify({
+        batchId: scheduleData.batchId,
+        title: scheduleData.topic,
+        description: scheduleData.description || '',
+        startTime: scheduleData.startTime,
+        duration,
+        zoomLink: scheduleData.meetingLink || '',
+        isRecorded: scheduleData.meetingType === 'recorded',
+      }),
+    });
+  }
+
+  async getTeacherPayments(): Promise<ApiResponse<Payment[]>> {
+    const response = await this.request('/payments/teacher-payments') as ApiResponse<{ payments: Payment[]; summary: Record<string, unknown> }>;
+    // Backend returns { data: { payments: [...], summary: {...} } }
+    // Extract just the payments array
+    return {
+      success: response.success,
+      data: response.data?.payments || []
+    };
+  }
+
+  async getMyAssessments(courseId?: string, status?: string): Promise<ApiResponse<Assessment[]>> {
+    const params = new URLSearchParams();
+    if (courseId) params.append('courseId', courseId);
+    if (status) params.append('status', status);
+    return await this.request(`/assessments/teacher/my-assessments?${params.toString()}`);
+  }
+
+  // Consolidated Dashboard APIs - Single endpoints for dashboard data
+  async getStudentDashboardData(): Promise<
+    ApiResponse<{
+      user?: User;
+      stats?: {
+        attendancePercentage: number;
+        recentTestScore: number;
+        notificationsCount: number;
+        studyStreak: number;
+        totalBatches: number;
+        totalTests: number;
+      };
+      batches?: Batch[];
+      upcomingClasses?: Array<{
+        batchId: string;
+        batchName: string;
+        courseTitle: string;
+        topic: string;
+        startTime: string;
+        endTime: string;
+        teacher: string;
+      }>;
+      schedule?: Array<{ startTime: Date; endTime: Date; topic: string }>;
+      recentActivities?: Array<{
+        id: string;
+        type: string;
+        title: string;
+        batchName: string;
+        time: string;
+        icon: string;
+      }>;
+      achievements?: Array<{
+        icon: string;
+        label: string;
+        earned: boolean;
+      }>;
+      weeklyProgress?: {
+        classesAttended: { value: number; max: number };
+        testsCompleted: { value: number; max: number };
+        assignmentsDone: { value: number; max: number };
+      };
+    }>
+  > {
+    try {
+      // Call the new comprehensive dashboard API
+      const response = await this.get('/student/dashboard/overview');
+      
+      // Also fetch user data separately for backward compatibility
+      const userResponse = await this.getMe();
+      
+      return {
+        success: true,
+        data: {
+          user: userResponse.data,
+          stats: response.data?.stats,
+          batches: response.data?.batches ?? [],
+          upcomingClasses: response.data?.upcomingClasses ?? [],
+          schedule: response.data?.upcomingClasses ?? [],
+          recentActivities: response.data?.recentActivities ?? [],
+          achievements: response.data?.achievements ?? [],
+          weeklyProgress: response.data?.weeklyProgress
+        }
+      };
+    } catch (error) {
+      console.error('Dashboard API error:', error);
+      // Fallback to old implementation if new API fails
+      const [batchesResponse, userResponse] = await Promise.all([
+        this.getMyBatches(),
+        this.getMe()
+      ]);
+
+      const batches = batchesResponse.data ?? [];
+      const user = userResponse.data!;
+
+      return {
+        success: true,
+        data: {
+          user,
+          stats: {
+            attendancePercentage: 0,
+            recentTestScore: 0,
+            notificationsCount: 0,
+            studyStreak: user.gamification?.streak?.current ?? 0,
+            totalBatches: batches.length,
+            totalTests: 0
+          },
+          batches,
+          upcomingClasses: [],
+          schedule: [],
+          recentActivities: [],
+          achievements: [],
+          weeklyProgress: {
+            classesAttended: { value: 0, max: 10 },
+            testsCompleted: { value: 0, max: 4 },
+            assignmentsDone: { value: 0, max: 5 }
+          }
+        }
+      };
+    }
+  }
+
+  async getTeacherDashboardData(): Promise<
+    ApiResponse<{
+      user: User;
+      stats: {
+        totalEarnings: number;
+        availableForPayout: number;
+        batchCount: number;
+        studentCount: number;
+        teacherCount: number;
+        pendingPayouts: number;
+      };
+      batches: Batch[];
+      upcomingClasses: Batch[];
+      payments: Payment[];
+      recentActivity: {
+        type: 'batch_created' | 'payment_received' | 'student_enrolled' | 'class_completed';
+        id: string;
+        title: string;
+        timestamp: Date;
+        details?: Record<string, unknown>;
+      }[];
+      earnings: {
+        total: number;
+        thisMonth: number;
+        pending: number;
+        trend: 'up' | 'down' | 'stable';
+      };
+    }>
+  > {
+    // Make all API calls in parallel for better performance
+    const [batchesResponse, paymentsResponse, userResponse] = await Promise.all([
+      this.getMyTeacherBatches(),
+      this.getTeacherPayments(),
+      this.getMe(),
+    ]);
+
+    // Calculate stats from the responses
+    const batches = Array.isArray(batchesResponse.data) ? batchesResponse.data : [];
+    const payments = Array.isArray(paymentsResponse.data) ? paymentsResponse.data : [];
+    const user = userResponse.data!;
+
+    // Calculate stats from the responses
+    const totalEarnings = user.totalEarnings ?? 0;
+    const availableForPayout = user.availableForPayout ?? 0;
+    const batchCount = batches.length;
+    const studentCount = batches.reduce(
+      (sum: number, batch: Batch) => sum + (batch.students?.length || 0),
+      0
+    );
+
+    // Get upcoming classes from batches
+    const now = new Date();
+    const upcomingClasses = batches
+      .filter((batch: Batch) => batch.schedule && Array.isArray(batch.schedule) && batch.schedule.some(s => new Date(s.startTime) > now))
+      .slice(0, 5); // Limit to 5 upcoming classes
+
+    return {
+      success: true,
+      data: {
+        user,
+        stats: {
+          totalEarnings,
+          availableForPayout,
+          batchCount,
+          studentCount,
+          teacherCount: 1,
+          pendingPayouts: 0, // TODO: Calculate from payments
+        },
+        batches,
+        upcomingClasses,
+        payments,
+        recentActivity: [], // TODO: Calculate from actual activity data
+        earnings: {
+          total: totalEarnings,
+          thisMonth: 0, // TODO: Calculate from payments
+          pending: availableForPayout,
+          trend: 'stable', // TODO: Calculate trend
+        },
+      },
+    };
+  }
+
+  async getAdminDashboardData(): Promise<
+    ApiResponse<{
+      user: User;
+      stats: {
+        totalUsers: number;
+        totalTeachers: number;
+        totalStudents: number;
+        totalCourses: number;
+        totalBatches: number;
+        totalEarnings: number;
+        activeUsers: number;
+        platformGrowth: number;
+      };
+      recentActivity: {
+        type: 'user_registered' | 'course_created' | 'batch_created' | 'payment_processed';
+        id: string;
+        title: string;
+        timestamp: Date;
+        details?: Record<string, unknown>;
+      }[];
+      topPerformers: {
+        teachers: User[];
+        students: User[];
+        courses: Course[];
+      };
+      systemHealth: {
+        uptime: number;
+        responseTime: number;
+        errorRate: number;
+        activeConnections: number;
+      };
+    }>
+  > {
+    // Make all API calls in parallel for better performance
+    const [usersResponse, userResponse] = await Promise.all([this.getAllUsers(), this.getMe()]);
+
+    const users = usersResponse.data ?? [];
+    const user = userResponse.data!;
+
+    // Calculate stats from the responses
+    const totalUsers = users.length;
+    const totalTeachers = users.filter((u: User) => u.role === 'teacher').length;
+    const totalStudents = users.filter((u: User) => u.role === 'student').length;
+
+    return {
+      success: true,
+      data: {
+        user,
+        stats: {
+          totalUsers,
+          totalTeachers,
+          totalStudents,
+          totalCourses: 0, // TODO: Get from courses API
+          totalBatches: 0, // TODO: Get from batches API
+          totalEarnings: 0, // TODO: Get from payments API
+          activeUsers: totalUsers,
+          platformGrowth: 0, // TODO: Calculate growth rate
+        },
+        recentActivity: [], // TODO: Calculate from actual activity data
+        topPerformers: {
+          teachers: [], // TODO: Calculate top teachers
+          students: [], // TODO: Calculate top students
+          courses: [], // TODO: Calculate top courses
+        },
+        systemHealth: {
+          uptime: 99.9, // TODO: Get from monitoring API
+          responseTime: 100, // TODO: Get from monitoring API
+          errorRate: 0.1, // TODO: Get from monitoring API
+          activeConnections: 0, // TODO: Get from monitoring API
+        },
+      },
+    };
+  }
+
+  // Legacy methods - kept for backward compatibility but should be replaced
+  async getStudentDashboard(): Promise<
+    ApiResponse<{
+      user: User;
+      stats: {
+        coursesEnrolled: number;
+        coursesCompleted: number;
+        totalStudyTime: number;
+        averageScore: number;
+        certificates: { course: string; issuedAt: Date; certificateId: string }[];
+        lastActive: Date;
+      };
+      recentActivity: {
+        type: 'course_progress' | 'assessment_submission' | 'achievement' | 'certificate';
+        id: string;
+        title: string;
+        timestamp: Date;
+        details?: Record<string, unknown>;
+      }[];
+      upcomingClasses: { startTime: Date; endTime: Date; topic: string }[];
+      recommendations: {
+        type: 'course' | 'assessment' | 'path';
+        id: string;
+        title: string;
+        reason: string;
+      }[];
+    }>
+  > {
+    return this.getStudentDashboardData();
+  }
+
+  async getTeacherDashboard(): Promise<ApiResponse<DashboardStats>> {
+    const result = await this.getTeacherDashboardData();
+    return {
+      success: result.success,
+      data: result.data?.stats as DashboardStats,
+    };
+  }
+
+  async getAdminDashboard(): Promise<ApiResponse<DashboardStats>> {
+    return await this.request('/admin/dashboard');
+  }
+
+  async getMyCourses(): Promise<ApiResponse<Course[]>> {
+    return await this.request('/courses/teacher/my-courses');
+  }
+
+  async createOrder(
+    batchId: string,
+    revenueShareType: 'platform' | 'teacher'
+  ): Promise<ApiResponse<{ orderId: string; amount: number }>> {
+    return await this.request('/payments/create-order', {
+      method: 'POST',
+      body: JSON.stringify({ batchId, revenueShareType }),
+    });
+  }
+
+  async updateProfile(profileData: {
+    name?: string;
+    email?: string;
+    bio?: string;
+    website?: string;
+    linkedin?: string;
+    github?: string;
+  }): Promise<ApiResponse<User>> {
+    return await this.request('/users/profile', {
+      method: 'PUT',
+      body: JSON.stringify(profileData),
+    });
+  }
+
+  async changePassword(
+    currentPassword: string,
+    newPassword: string
+  ): Promise<ApiResponse<{ message: string }>> {
+    return await this.request('/users/change-password', {
+      method: 'PUT',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+  }
+
+  async markNotificationAsRead(notificationId: string): Promise<ApiResponse<{ success: true }>> {
+    return await this.request(`/notifications/${notificationId}/read`, {
+      method: 'PUT',
+    });
+  }
+
+  async getNotifications(userId?: string): Promise<ApiResponse<Notification[]>> {
+    const params = userId ? `?userId=${userId}` : '';
+    return await this.request(`/notifications${params}`);
+  }
+
+  // Profile Management
+  async getStudentProfile(): Promise<ApiResponse<any>> {
+    return await this.request('/student/profile');
+  }
+
+  async updateStudentProfile(profileData: {
+    name: string;
+    bio?: string;
+    location?: string;
+    timezone?: string;
+    learningStyle?: string;
+    company?: string;
+    website?: string;
+    linkedin?: string;
+    github?: string;
+  }): Promise<ApiResponse<any>> {
+    return await this.request('/student/update-profile', {
+      method: 'POST',
+      body: JSON.stringify(profileData),
+    });
+  }
+
+  async changeStudentPassword(passwordData: {
+    currentPassword: string;
+    newPassword: string;
+    confirmPassword: string;
+  }): Promise<ApiResponse<{ success: true; message: string }>> {
+    return await this.request('/student/change-password', {
+      method: 'POST',
+      body: JSON.stringify(passwordData),
+    });
+  }
+
+  // Payments
+  async getStudentPayments(status?: string): Promise<ApiResponse<any>> {
+    const params = status ? `?status=${status}` : '';
+    return await this.request(`/student/payments${params}`);
+  }
+
+  async retryPayment(paymentId: string): Promise<ApiResponse<any>> {
+    return await this.request(`/student/retry-payment/${paymentId}`, {
+      method: 'POST',
+    });
+  }
+
+  async getInvoice(paymentId: string): Promise<ApiResponse<any>> {
+    return await this.request(`/student/invoices/${paymentId}`);
+  }
+
+  // Attendance
+  async getAttendanceByBatch(batchId: string): Promise<ApiResponse<any>> {
+    return await this.request(`/student/attendance/${batchId}`);
+  }
+
+  async reportAttendanceIssue(issueData: {
+    sessionId: string;
+    batchId: string;
+    issueType?: string;
+    description: string;
+  }): Promise<ApiResponse<any>> {
+    return await this.request('/student/report-issue', {
+      method: 'POST',
+      body: JSON.stringify(issueData),
+    });
+  }
+
+  // Support/Doubts
+  async askDoubt(doubtData: {
+    subject: string;
+    batchId?: string;
+    description: string;
+    priority?: string;
+  }): Promise<ApiResponse<any>> {
+    return await this.request('/student/ask-doubt', {
+      method: 'POST',
+      body: JSON.stringify(doubtData),
+    });
+  }
+
+  async getDoubts(status?: string): Promise<ApiResponse<any>> {
+    const params = status ? `?status=${status}` : '';
+    return await this.request(`/student/doubts${params}`);
+  }
+
+  async replyToDoubt(doubtId: string, message: string): Promise<ApiResponse<any>> {
+    return await this.request(`/student/reply/${doubtId}`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    });
+  }
+
+  async enrollInCourse(
+    courseId: string
+  ): Promise<ApiResponse<{ enrollmentId: string; status: string }>> {
+    return await this.request('/enrollments/course', {
+      method: 'POST',
+      body: JSON.stringify({ courseId }),
+    });
+  }
+
+  async enrollStudentInBatch(
+    studentId: string,
+    batchId: string
+  ): Promise<ApiResponse<{ enrollmentId: string; status: string }>> {
+    return await this.request(`/batches/${batchId}/enroll`, {
+      method: 'POST',
+      body: JSON.stringify({ studentId }),
+    });
+  }
+
+  async getAllUsers(): Promise<ApiResponse<User[]>> {
+    // Backend exposes users list at /api/users (admin-only)
+    return await this.request('/users');
+  }
+
+  async getAdminStats(): Promise<ApiResponse<DashboardStats>> {
+    return await this.request('/admin/analytics');
+  }
+
+  // Admin - Pending payouts and approvals
+  async getPendingPayouts(): Promise<ApiResponse<unknown[]>> {
+    return await this.request('/admin/payouts');
+  }
+
+  async updateUserStatus(userId: string, status: string): Promise<ApiResponse<User>> {
+    return await this.request(`/users/${userId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    });
+  }
+
+  async deleteUser(userId: string): Promise<ApiResponse<{ message: string }>> {
+    return await this.request(`/users/${userId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getUserById(userId: string): Promise<ApiResponse<User>> {
+    return await this.request(`/users/${userId}`);
+  }
+
+  async getUserAnalytics(userId: string): Promise<ApiResponse<unknown>> {
+    return await this.request(`/users/${userId}/analytics`);
+  }
+
+  // Teacher Management APIs
+  async getAllTeachers(params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    status?: string;
+    subject?: string;
+  }): Promise<ApiResponse<unknown[]>> {
+    const queryParams = new URLSearchParams();
+    if (params?.page) queryParams.append('page', params.page.toString());
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.search) queryParams.append('search', params.search);
+    if (params?.status) queryParams.append('status', params.status);
+    if (params?.subject) queryParams.append('subject', params.subject);
+    
+    const queryString = queryParams.toString();
+    return await this.request(`/teacher-management${queryString ? `?${queryString}` : ''}`);
+  }
+
+  async getTeacherById(teacherId: string): Promise<ApiResponse<unknown>> {
+    return await this.request(`/teacher-management/${teacherId}`);
+  }
+
+  async toggleTeacherSuspension(teacherId: string, data: {
+    suspend: boolean;
+    reason?: string;
+  }): Promise<ApiResponse<unknown>> {
+    return await this.request(`/teacher-management/${teacherId}/suspension`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async approveTeacher(teacherId: string): Promise<ApiResponse<unknown>> {
+    return await this.updateUserStatus(teacherId, 'active');
+  }
+
+  async updateTeacherCommission(teacherId: string, commissionRate: number): Promise<ApiResponse<unknown>> {
+    return await this.request(`/teacher-management/${teacherId}/commission`, {
+      method: 'PUT',
+      body: JSON.stringify({ commissionRate }),
+    });
+  }
+
+  async getMyStudents(params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+  }): Promise<ApiResponse<{
+    students: unknown[];
+    pagination: {
+      currentPage: number;
+      totalPages: number;
+      totalCount: number;
+      hasMore: boolean;
+    };
+  }>> {
+    const queryParams = new URLSearchParams();
+    if (params?.page) queryParams.append('page', params.page.toString());
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.search) queryParams.append('search', params.search);
+    
+    const queryString = queryParams.toString();
+    return await this.request(`/teacher-management/my/students${queryString ? `?${queryString}` : ''}`);
+  }
+
+  // Progress Tracking APIs
+  async updateProgress(progressData: {
+    moduleId: string;
+    completionStatus: 'not_started' | 'in_progress' | 'completed';
+    timeSpent: number;
+    score?: number;
+    notes?: string;
+  }): Promise<ApiResponse<Progress>> {
+    return await this.request('/progress/update', {
+      method: 'POST',
+      body: JSON.stringify(progressData),
+    });
+  }
+
+  async getProgressByModule(moduleId: string): Promise<ApiResponse<Progress>> {
+    return await this.request(`/progress/module/${moduleId}`);
+  }
+
+  async getProgressByCourse(courseId: string): Promise<ApiResponse<ProgressStats>> {
+    return await this.request(`/progress/course/${courseId}`);
+  }
+
+  async getProgressByBatch(batchId: string): Promise<ApiResponse<Progress[]>> {
+    return await this.request(`/progress/batch/${batchId}`);
+  }
+
+  async getProgressStats(filters?: {
+    courseId?: string;
+    batchId?: string;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<ApiResponse<ProgressStats>> {
+    const params = new URLSearchParams();
+    if (filters?.courseId) params.append('courseId', filters.courseId);
+    if (filters?.batchId) params.append('batchId', filters.batchId);
+    if (filters?.startDate) params.append('startDate', filters.startDate);
+    if (filters?.endDate) params.append('endDate', filters.endDate);
+    return await this.request(`/progress/stats?${params.toString()}`);
+  }
+
+  async getBatchProgressOverview(batchId: string): Promise<ApiResponse<BatchProgress>> {
+    return await this.request(`/progress/batch/${batchId}/overview`);
+  }
+
+  async getStudentProgressInBatch(
+    batchId: string,
+    studentId: string
+  ): Promise<ApiResponse<Progress[]>> {
+    return await this.request(`/progress/batch/${batchId}/student/${studentId}`);
+  }
+
+  // Course APIs
+  async getFeaturedCourses(): Promise<ApiResponse<Course[]>> {
+    return await this.request('/courses/featured');
+  }
+
+  async getCourseById(id: string): Promise<ApiResponse<Course>> {
+    return await this.request(`/courses/${id}`);
+  }
+
+  async getCourses(): Promise<ApiResponse<Course[]>> {
+    return await this.request('/courses');
+  }
+
+  async createCourse(formData: FormData): Promise<ApiResponse<Course>> {
+    const token = sessionManager.getToken();
+    const response = await fetch(`${API_BASE_URL}/courses`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData, // Don't set Content-Type for FormData, browser will set it automatically
+    });
+
+    if (!response.ok) {
+      const errorData = (await response
+        .json()
+        .catch(() => ({ message: 'Failed to create course' }))) as { message?: string };
+      throw new Error(errorData.message ?? 'Failed to create course');
+    }
+
+    return (await response.json()) as ApiResponse<Course>;
+  }
+
+  async getBatches(): Promise<ApiResponse<unknown[]>> {
+    return await this.request('/batches');
+  }
+
+  async createBatch(data: {
+    name: string;
+    subject: string;
+    grade?: string;
+    description?: string;
+    teacherId: string;
+    maxStudents: number;
+    schedule?: string;
+    startDate: string;
+    endDate?: string;
+    isActive: boolean;
+    studentIds?: string[];
+  }): Promise<ApiResponse<unknown>> {
+    return await this.request('/batches', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Live Classes APIs
+  async getLiveClasses(params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    teacherId?: string;
+    batchId?: string;
+  }): Promise<
+    ApiResponse<{
+      liveClasses: LiveClass[];
+      pagination: { page: number; limit: number; total: number; pages: number };
+    }>
+  > {
+    const searchParams = new URLSearchParams();
+    if (params?.page) searchParams.append('page', params.page.toString());
+    if (params?.limit) searchParams.append('limit', params.limit.toString());
+    if (params?.status) searchParams.append('status', params.status);
+    if (params?.teacherId) searchParams.append('teacherId', params.teacherId);
+    if (params?.batchId) searchParams.append('batchId', params.batchId);
+
+    const query = searchParams.toString();
+    return await this.request(`/live-classes${query ? `?${query}` : ''}`);
+  }
+
+  async createLiveSession(data: {
+    batchId: string;
+    title: string;
+    description?: string;
+    startTime: string;
+    duration?: number;
+    isRecorded?: boolean;
+  }): Promise<ApiResponse<LiveClass>> {
+    return await this.request('/live-classes', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getBatchLiveClasses(batchId: string, status?: string): Promise<ApiResponse<LiveClass[]>> {
+    const query = status ? `?status=${status}` : '';
+    return await this.request(`/live-classes/batch/${batchId}${query}`);
+  }
+
+  async joinLiveClass(sessionId: string): Promise<
+    ApiResponse<{
+      sessionId: string;
+      meetingId: string;
+      joinUrl: string;
+      title: string;
+      passcode?: string;
+    }>
+  > {
+    return await this.request(`/live-classes/${sessionId}/join`);
+  }
+
+  async endLiveClass(sessionId: string, recordingUrl?: string): Promise<ApiResponse<LiveClass>> {
+    return await this.request(`/live-classes/${sessionId}/end`, {
+      method: 'PUT',
+      body: JSON.stringify({ recordingUrl }),
+    });
+  }
+
+  async deleteLiveClass(sessionId: string): Promise<ApiResponse<{ success: boolean }>> {
+    return await this.request(`/live-classes/${sessionId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async updateLiveClass(
+    sessionId: string,
+    data: {
+      title?: string;
+      description?: string;
+      startTime?: string;
+      duration?: number;
+      meetLink?: string;
+      isRecorded?: boolean;
+    }
+  ): Promise<ApiResponse<LiveClass>> {
+    return await this.request(`/live-classes/${sessionId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Cart APIs
+  async getCart(): Promise<
+    ApiResponse<{ items: { _id: string; course?: string; batch?: string; quantity?: number }[] }>
+  > {
+    return await this.request('/cart');
+  }
+
+  async addToCart(
+    courseId: string | undefined,
+    batchId: string | undefined,
+    quantity: number
+  ): Promise<ApiResponse<{ success: true }>> {
+    return await this.request('/cart/add', {
+      method: 'POST',
+      body: JSON.stringify({ courseId, batchId, quantity }),
+    });
+  }
+
+  // Wishlist APIs
+  async getWishlist(): Promise<
+    ApiResponse<{ items: { _id: string; course?: string; batch?: string; priority?: string }[] }>
+  > {
+    return await this.request('/wishlist');
+  }
+
+  async addToWishlist(
+    courseId: string | undefined,
+    batchId: string | undefined,
+    priority: 'low' | 'medium' | 'high' | 'urgent',
+    tags: string[]
+  ): Promise<ApiResponse<{ success: true }>> {
+    return await this.request('/wishlist/add', {
+      method: 'POST',
+      body: JSON.stringify({ courseId, batchId, priority, tags }),
+    });
+  }
+
+  async removeFromWishlist(itemId: string): Promise<ApiResponse<{ success: true }>> {
+    return await this.request(`/wishlist/remove/${itemId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Payments (Admin)
+  async getPayments(): Promise<ApiResponse<{
+    payments: Array<{
+      id: string;
+      transactionId?: string;
+      userId: string;
+      courseId?: string;
+      batchId?: string;
+      amount: number;
+      method: string;
+      status: string;
+      createdAt: string;
+      user?: { name: string; email: string };
+      course?: { title: string };
+      batch?: { name: string };
+    }>;
+    stats: {
+      total: number;
+      completed: number;
+      pending: number;
+      failed: number;
+      refunded: number;
+      totalRevenue: number;
+      successRate: number;
+      avgTransaction: number;
+      thisMonth: number;
+    };
+  }>> {
+    return await this.request('/payments');
+  }
+
+  async retryAdminPayment(paymentId: string): Promise<ApiResponse<unknown>> {
+    return await this.request(`/payments/${paymentId}/retry`, {
+      method: 'POST',
+    });
+  }
+
+  // Analytics APIs
+  async getAdminAnalytics(timeRange?: string): Promise<
+    ApiResponse<{
+      overview: {
+        totalUsers: number;
+        totalCourses: number;
+        totalBatches: number;
+        totalRevenue: number;
+        activeUsers: number;
+        completionRate: number;
+        liveClassesCount: number;
+        averageRating: number;
+      };
+      growth: {
+        usersGrowth: number;
+        coursesGrowth: number;
+        revenueGrowth: number;
+        engagementGrowth: number;
+      };
+      topPerformers: {
+        teachers: DashboardChartData[];
+        courses: DashboardChartData[];
+        students: DashboardChartData[];
+      };
+      revenue: {
+        total: number;
+        monthly: DashboardChartData[];
+        byCategory: Record<string, number>;
+      };
+      charts: {
+        userGrowth: Array<{ month: string; users: number; active: number }>;
+        activeHours: Array<{ hour: string; students: number }>;
+        attendanceTrend: Array<{ week: string; attendance: number }>;
+        batchPerformance: Array<{ batch: string; performance: number; students: number }>;
+        teacherPerformance: Array<{ name: string; rating: number; classes: number }>;
+        participation: Array<{ name: string; value: number }>;
+      };
+    }>
+  > {
+    const query = timeRange ? `?timeRange=${timeRange}` : '';
+    return await this.request(`/analytics/admin${query}`);
+  }
+
+  // Notification Management APIs
+  async getAllNotifications(params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    type?: string;
+    priority?: string;
+    search?: string;
+  }): Promise<
+    ApiResponse<{
+      notifications: {
+        id: string;
+        title: string;
+        message: string;
+        type: 'system' | 'course' | 'payment' | 'achievement' | 'reminder';
+        target: 'all' | 'teachers' | 'students' | 'specific';
+        status: 'sent' | 'scheduled' | 'draft' | 'failed';
+        priority: 'low' | 'medium' | 'high' | 'urgent';
+        createdAt: string;
+        sentAt?: string;
+        scheduledFor?: string;
+        readCount?: number;
+        totalRecipients?: number;
+        sender?: { id: string; name: string; email: string };
+        recipient?: { id: string; name: string; email: string };
+      }[];
+      pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        pages: number;
+      };
+      stats: {
+        total: number;
+        sent: number;
+        scheduled: number;
+        draft: number;
+        failed: number;
+        totalRead: number;
+        totalRecipients: number;
+      };
+    }>
+  > {
+    const query = params
+      ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
+      : '';
+    return await this.request(`/admin/notifications${query}`);
+  }
+
+  async sendNotification(data: {
+    title: string;
+    message: string;
+    type?: 'system' | 'course' | 'payment' | 'achievement' | 'reminder';
+    target: 'all' | 'teachers' | 'students' | 'specific';
+    priority?: 'low' | 'medium' | 'high' | 'urgent';
+    userIds?: string[];
+  }): Promise<
+    ApiResponse<{
+      recipientCount: number;
+      notificationsCreated: number;
+    }>
+  > {
+    return await this.request('/admin/notifications/send', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async scheduleNotification(data: {
+    title: string;
+    message: string;
+    type?: 'system' | 'course' | 'payment' | 'achievement' | 'reminder';
+    target: 'all' | 'teachers' | 'students' | 'specific';
+    priority?: 'low' | 'medium' | 'high' | 'urgent';
+    userIds?: string[];
+    scheduledDate: string;
+  }): Promise<
+    ApiResponse<{
+      recipientCount: number;
+      notificationsCreated: number;
+      scheduledFor: string;
+    }>
+  > {
+    return await this.request('/admin/notifications/schedule', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteNotification(id: string): Promise<ApiResponse<{ success: true }>> {
+    return await this.request(`/admin/notifications/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getNotificationAnalytics(timeRange?: string): Promise<
+    ApiResponse<{
+      overview: {
+        total: number;
+        sent: number;
+        scheduled: number;
+        draft: number;
+        failed: number;
+        readRate: number;
+      };
+      typeDistribution: { type: string; count: number }[];
+      priorityDistribution: { priority: string; count: number }[];
+      timeRange: string;
+    }>
+  > {
+    const query = timeRange ? `?timeRange=${timeRange}` : '';
+    return await this.request(`/admin/notifications/analytics${query}`);
+  }
+
+  // Data Management APIs
+  async getDataStats(): Promise<
+    ApiResponse<{
+      totalUsers: number;
+      totalCourses: number;
+      totalBatches: number;
+      totalPayments: number;
+      totalLiveClasses: number;
+      totalNotifications: number;
+      totalStorageUsed: number;
+      totalBackups: number;
+      lastBackupDate: string;
+      formattedStorage: string;
+      storageUsagePercent: number;
+    }>
+  > {
+    return await this.request('/admin/data/stats');
+  }
+
+  async getDatabaseTables(): Promise<
+    ApiResponse<
+      {
+        name: string;
+        displayName: string;
+        icon: string;
+        recordCount: number;
+        lastUpdated: string;
+      }[]
+    >
+  > {
+    return await this.request('/admin/data/tables');
+  }
+
+  async getTableData(
+    tableName: string,
+    params?: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+    }
+  ): Promise<
+    ApiResponse<{
+      data: Record<string, unknown>[];
+      pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        pages: number;
+      };
+    }>
+  > {
+    const query = params
+      ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
+      : '';
+    return await this.request(`/admin/data/tables/${tableName}${query}`);
+  }
+
+  async getBackupHistory(): Promise<
+    ApiResponse<{
+      backups: {
+        id: string;
+        type: 'full' | 'incremental' | 'manual';
+        filename: string;
+        size: number;
+        createdAt: string;
+        status: 'completed' | 'in_progress' | 'failed';
+        recordsCount: number;
+        description: string;
+        formattedSize: string;
+        formattedDate: string;
+        formattedTime: string;
+        formattedRecords: string;
+      }[];
+    }>
+  > {
+    return await this.request('/admin/data/backups');
+  }
+
+  async createBackup(data: {
+    type?: 'full' | 'incremental' | 'manual';
+    description?: string;
+  }): Promise<
+    ApiResponse<{
+      backup: {
+        id: string;
+        type: string;
+        filename: string;
+        status: string;
+      };
+    }>
+  > {
+    return await this.request('/admin/data/backup', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteBackup(id: string): Promise<ApiResponse<{ success: true }>> {
+    return await this.request(`/admin/data/backups/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Payout APIs
+  async getPayouts(status?: string): Promise<
+    ApiResponse<{
+      payouts: Array<{
+        id: string;
+        teacherId: string;
+        teacher: {
+          id: string;
+          name: string;
+          email: string;
+          phone: string;
+        };
+        amount: number;
+        status: 'requested' | 'processing' | 'completed' | 'rejected';
+        paymentMethod: string;
+        paymentDetails: Record<string, unknown>;
+        transactionId?: string;
+        note?: string;
+        rejectionReason?: string;
+        requestedAt: string;
+        processedAt?: string;
+        completedAt?: string;
+        rejectedAt?: string;
+        createdAt: string;
+        updatedAt: string;
+      }>;
+      stats: {
+        total: number;
+        pending: number;
+        processing: number;
+        completed: number;
+        rejected: number;
+        totalProcessed: number;
+        totalPending: number;
+        avgPayout: number;
+      };
+      pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        pages: number;
+      };
+    }>
+  > {
+    const url = status && status !== 'all' ? `/payouts?status=${status}` : '/payouts';
+    return await this.request(url);
+  }
+
+  async approvePayout(
+    payoutId: string,
+    data: { note?: string }
+  ): Promise<ApiResponse<unknown>> {
+    return await this.request(`/payouts/${payoutId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async completePayout(
+    payoutId: string,
+    data: { transactionId: string; note?: string }
+  ): Promise<ApiResponse<unknown>> {
+    return await this.request(`/payouts/${payoutId}/complete`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async rejectPayout(
+    payoutId: string,
+    data: { reason: string }
+  ): Promise<ApiResponse<unknown>> {
+    return await this.request(`/payouts/${payoutId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getPayoutById(payoutId: string): Promise<ApiResponse<unknown>> {
+    return await this.request(`/payouts/${payoutId}`);
+  }
+
+  // Content Library Methods
+  async getContentLibrary(params?: {
+    status?: string;
+    courseId?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<ApiResponse<unknown>> {
+    const queryParams = new URLSearchParams();
+    if (params?.status) queryParams.append('status', params.status);
+    if (params?.courseId) queryParams.append('courseId', params.courseId);
+    if (params?.search) queryParams.append('search', params.search);
+    if (params?.page) queryParams.append('page', params.page.toString());
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    
+    const url = `/content-library${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+    return await this.request(url);
+  }
+
+  async uploadContent(formData: FormData): Promise<ApiResponse<unknown>> {
+    const token = sessionManager.getToken();
+    // Don't set Content-Type header - browser will set it with boundary
+    return await this.request('/content-library/upload', {
+      method: 'POST',
+      body: formData,
+      headers: {
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+    });
+  }
+
+  async updateContent(
+    contentId: string,
+    data: {
+      title?: string;
+      description?: string;
+      courseId?: number;
+      batchId?: number;
+      isPublic?: boolean;
+      tags?: string[];
+      quality?: string;
+      status?: string;
+    }
+  ): Promise<ApiResponse<unknown>> {
+    return await this.request(`/content-library/${contentId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async approveContent(contentId: string): Promise<ApiResponse<unknown>> {
+    return await this.request(`/content-library/${contentId}/approve`, {
+      method: 'POST',
+    });
+  }
+
+  async rejectContent(contentId: string, data: { reason: string }): Promise<ApiResponse<unknown>> {
+    return await this.request(`/content-library/${contentId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteContent(contentId: string): Promise<ApiResponse<unknown>> {
+    return await this.request(`/content-library/${contentId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getContentById(contentId: string): Promise<ApiResponse<unknown>> {
+    return await this.request(`/content-library/${contentId}`);
+  }
+
+  async trackContentView(contentId: string): Promise<ApiResponse<unknown>> {
+    return await this.request(`/content-library/${contentId}/view`, {
+      method: 'POST',
+    });
+  }
+
+  async trackContentDownload(contentId: string): Promise<ApiResponse<unknown>> {
+    return await this.request(`/content-library/${contentId}/download`, {
+      method: 'POST',
+    });
+  }
+
+  // ==================== PRIORITY 1: CRITICAL MISSING APIS ====================
+  
+  // Batch Management (CRUD)
+  async getBatchById(batchId: string): Promise<ApiResponse<Batch>> {
+    return await this.request(`/batches/${batchId}`);
+  }
+
+  async updateBatch(batchId: string, data: {
+    name?: string;
+    subject?: string;
+    grade?: string;
+    description?: string;
+    maxStudents?: number;
+    schedule?: string;
+    startDate?: string;
+    endDate?: string;
+    isActive?: boolean;
+  }): Promise<ApiResponse<Batch>> {
+    return await this.request(`/batches/${batchId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteBatch(batchId: string): Promise<ApiResponse<{ message: string }>> {
+    return await this.request(`/batches/${batchId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getBatchStudents(batchId: string): Promise<ApiResponse<User[]>> {
+    return await this.request(`/batches/${batchId}/students`);
+  }
+
+  async removeStudentFromBatch(enrollmentId: string): Promise<ApiResponse<{ message: string }>> {
+    return await this.request(`/enrollments/${enrollmentId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Payment Verification
+  async verifyPayment(data: {
+    orderId: string;
+    paymentId: string;
+    signature: string;
+  }): Promise<ApiResponse<{ verified: boolean; payment: Payment }>> {
+    return await this.request('/payments/verify', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Payout Request (Teacher)
+  async requestPayout(data: {
+    amount: number;
+    paymentMethod: string;
+    paymentDetails: Record<string, unknown>;
+    note?: string;
+  }): Promise<ApiResponse<{ payout: unknown }>> {
+    return await this.request('/payouts/request', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Cart Operations
+  async removeFromCart(itemId: string): Promise<ApiResponse<{ success: true }>> {
+    return await this.request(`/cart/remove/${itemId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async clearCart(): Promise<ApiResponse<{ success: true }>> {
+    return await this.request('/cart/clear', {
+      method: 'DELETE',
+    });
+  }
+
+  // Course Management (Update/Delete)
+  async updateCourse(courseId: string, formData: FormData): Promise<ApiResponse<Course>> {
+    const token = sessionManager.getToken();
+    const response = await fetch(`${API_BASE_URL}/courses/${courseId}`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = (await response
+        .json()
+        .catch(() => ({ message: 'Failed to update course' }))) as { message?: string };
+      throw new Error(errorData.message ?? 'Failed to update course');
+    }
+
+    return (await response.json()) as ApiResponse<Course>;
+  }
+
+  async deleteCourse(courseId: string): Promise<ApiResponse<{ message: string }>> {
+    return await this.request(`/courses/${courseId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ==================== PRIORITY 2: ASSESSMENT MODULE ====================
+  
+  async getAssessments(params?: {
+    courseId?: string;
+    batchId?: string;
+    status?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<ApiResponse<Assessment[]>> {
+    const query = params
+      ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
+      : '';
+    return await this.request(`/assessments${query}`);
+  }
+
+  async getAssessmentById(assessmentId: string): Promise<ApiResponse<Assessment>> {
+    return await this.request(`/assessments/${assessmentId}`);
+  }
+
+  async createAssessment(data: {
+    title: string;
+    description?: string;
+    courseId?: string;
+    batchId?: string;
+    type: 'quiz' | 'assignment' | 'exam' | 'practice';
+    duration?: number;
+    totalMarks: number;
+    passingMarks?: number;
+    startTime?: string;
+    endTime?: string;
+    questions: unknown[];
+  }): Promise<ApiResponse<Assessment>> {
+    return await this.request('/assessments', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateAssessment(assessmentId: string, data: {
+    title?: string;
+    description?: string;
+    duration?: number;
+    totalMarks?: number;
+    passingMarks?: number;
+    startTime?: string;
+    endTime?: string;
+    questions?: unknown[];
+  }): Promise<ApiResponse<Assessment>> {
+    return await this.request(`/assessments/${assessmentId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteAssessment(assessmentId: string): Promise<ApiResponse<{ message: string }>> {
+    return await this.request(`/assessments/${assessmentId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async submitAssessment(assessmentId: string, data: {
+    answers: Record<string, unknown>[];
+    timeSpent?: number;
+  }): Promise<ApiResponse<{ submission: unknown; autoGradedScore?: number }>> {
+    return await this.request(`/assessments/${assessmentId}/submit`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async gradeSubmission(submissionId: string, data: {
+    score: number;
+    feedback?: string;
+    questionGrades?: Record<string, unknown>[];
+  }): Promise<ApiResponse<{ submission: unknown }>> {
+    return await this.request(`/assessments/submissions/${submissionId}/grade`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getSubmissionById(submissionId: string): Promise<ApiResponse<unknown>> {
+    return await this.request(`/assessments/submissions/${submissionId}`);
+  }
+
+  async getAssessmentSubmissions(assessmentId: string): Promise<ApiResponse<unknown[]>> {
+    return await this.request(`/assessments/${assessmentId}/submissions`);
+  }
+
+  async getMySubmissions(params?: {
+    courseId?: string;
+    batchId?: string;
+    status?: string;
+  }): Promise<ApiResponse<unknown[]>> {
+    const query = params
+      ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
+      : '';
+    return await this.request(`/assessments/my-submissions${query}`);
+  }
+
+  // ==================== STUDENT ASSESSMENTS ====================
+
+  async getStudentAssessments(params?: {
+    status?: string;
+    type?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<ApiResponse<{
+    assessments: Array<{
+      id: string;
+      title: string;
+      description: string;
+      subject: string;
+      type: string;
+      status: 'pending' | 'submitted' | 'graded' | 'overdue';
+      dueDate: string;
+      submittedDate: string | null;
+      points: number | null;
+      maxPoints: number;
+      totalPoints: number;
+      grade: string | null;
+      percentage: number | null;
+      passed: boolean | null;
+      feedback: string | null;
+      timeLimit: number;
+      teacher: { id: string; name: string };
+      course: { id: string; title: string } | null;
+    }>;
+    pagination: { page: number; limit: number; total: number; pages: number };
+  }>> {
+    const query = params
+      ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
+      : '';
+    return await this.request(`/student/assessments${query}`);
+  }
+
+  async getStudentPerformance(): Promise<ApiResponse<{
+    recentScores: Array<{
+      subject: string;
+      score: number;
+      maxScore: number;
+      percentage: number;
+      grade: string;
+      trend: 'up' | 'down' | 'stable';
+    }>;
+    totalAssessments: number;
+    averageScore: number;
+  }>> {
+    return await this.request('/student/assessments/performance');
+  }
+
+  async getUpcomingQuizzes(limit?: number): Promise<ApiResponse<Array<{
+    id: string;
+    title: string;
+    subject: string;
+    date: string;
+    time: string;
+    duration: string;
+    questions: number;
+    totalPoints: number;
+  }>>> {
+    const query = limit ? `?limit=${limit}` : '';
+    return await this.request(`/student/assessments/upcoming${query}`);
+  }
+
+  async startStudentAssessment(assessmentId: string): Promise<ApiResponse<{
+    assessment: {
+      id: string;
+      title: string;
+      timeLimit: number;
+      totalPoints: number;
+      instructions: string;
+    };
+    submission: { id: string; startedAt: string };
+    questions: Array<{
+      id: string;
+      type: string;
+      question: string;
+      options?: unknown[];
+      points: number;
+    }>;
+    settings: { allowReview: boolean; showResults: string };
+  }>> {
+    return await this.request(`/student/assessments/${assessmentId}/start`, {
+      method: 'POST',
+    });
+  }
+
+  async submitStudentAssessment(
+    assessmentId: string,
+    data: { answers: unknown[]; timeSpent: number }
+  ): Promise<ApiResponse<{
+    submissionId: string;
+    showResults: boolean;
+    results: {
+      totalPoints: number;
+      earnedPoints: number;
+      percentage: number;
+      grade: string;
+      passed: boolean;
+    } | null;
+  }>> {
+    return await this.request(`/student/assessments/${assessmentId}/submit`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getAssessmentResults(assessmentId: string): Promise<ApiResponse<{
+    assessment: { id: string; title: string; type: string; subject: string };
+    submission: {
+      submittedAt: string;
+      timeSpent: number;
+      totalPoints: number;
+      earnedPoints: number;
+      percentage: number;
+      grade: string;
+      passed: boolean;
+      feedback: string | null;
+    };
+    answers: unknown[];
+    showCorrectAnswers: boolean;
+  }>> {
+    return await this.request(`/student/assessments/${assessmentId}/results`);
+  }
+
+  // ==================== PRIORITY 3: ATTENDANCE SYSTEM ====================
+  
+  async generateAttendanceQR(data: {
+    batchId: string;
+    sessionId?: string;
+    expiryMinutes?: number;
+    location?: { latitude: number; longitude: number };
+    radiusMeters?: number;
+  }): Promise<ApiResponse<{ qrCode: string; token: string; expiresAt: string }>> {
+    return await this.request('/attendance/generate-qr', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async markAttendanceWithQR(data: {
+    token: string;
+    location?: { latitude: number; longitude: number };
+  }): Promise<ApiResponse<{ attendance: unknown; status: string }>> {
+    return await this.request('/attendance/mark-qr', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async markAttendance(data: {
+    studentId: string;
+    batchId: string;
+    sessionId?: string;
+    status: 'present' | 'absent' | 'late' | 'excused';
+    note?: string;
+  }): Promise<ApiResponse<{ attendance: unknown }>> {
+    return await this.request('/attendance/mark', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getAttendanceRecords(params?: {
+    batchId?: string;
+    studentId?: string;
+    startDate?: string;
+    endDate?: string;
+    status?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<ApiResponse<unknown[]>> {
+    const query = params
+      ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
+      : '';
+    return await this.request(`/attendance${query}`);
+  }
+
+  async getBatchAttendance(batchId: string, params?: {
+    startDate?: string;
+    endDate?: string;
+  }): Promise<ApiResponse<unknown[]>> {
+    const query = params
+      ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
+      : '';
+    return await this.request(`/attendance/batch/${batchId}${query}`);
+  }
+
+  async getStudentAttendance(studentId: string, params?: {
+    batchId?: string;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<ApiResponse<unknown[]>> {
+    const query = params
+      ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
+      : '';
+    return await this.request(`/attendance/student/${studentId}${query}`);
+  }
+
+  async getAttendanceStats(params?: {
+    batchId?: string;
+    studentId?: string;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<ApiResponse<{
+    totalSessions: number;
+    present: number;
+    absent: number;
+    late: number;
+    excused: number;
+    attendancePercentage: number;
+  }>> {
+    const query = params
+      ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
+      : '';
+    return await this.request(`/attendance/stats${query}`);
+  }
+
+  async getAttendanceReport(params?: {
+    batchId?: string;
+    startDate?: string;
+    endDate?: string;
+    format?: 'json' | 'csv';
+  }): Promise<ApiResponse<unknown>> {
+    const query = params
+      ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
+      : '';
+    return await this.request(`/attendance/report${query}`);
+  }
+
+  // ==================== PRIORITY 4: ENHANCED PAYMENT FEATURES ====================
+  
+  // Installment Plans
+  async createInstallmentPlan(data: {
+    paymentId: string;
+    numberOfInstallments: number;
+    frequency: 'weekly' | 'biweekly' | 'monthly';
+    interestRate?: number;
+    autoDebit?: boolean;
+    gracePeriodDays?: number;
+  }): Promise<ApiResponse<{ plan: unknown; schedule: unknown[] }>> {
+    return await this.request('/payments/installments/create', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getInstallmentPlans(params?: {
+    studentId?: string;
+    status?: string;
+  }): Promise<ApiResponse<unknown[]>> {
+    const query = params
+      ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
+      : '';
+    return await this.request(`/payments/installments${query}`);
+  }
+
+  async payInstallment(installmentId: string, data: {
+    paymentMethod: string;
+    paymentDetails?: Record<string, unknown>;
+  }): Promise<ApiResponse<{ installment: unknown; receipt: unknown }>> {
+    return await this.request(`/payments/installments/${installmentId}/pay`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getInstallmentSchedule(planId: string): Promise<ApiResponse<unknown[]>> {
+    return await this.request(`/payments/installments/${planId}/schedule`);
+  }
+
+  async enableAutoDebit(planId: string, data: {
+    enabled: boolean;
+    bankDetails?: Record<string, unknown>;
+  }): Promise<ApiResponse<{ plan: unknown }>> {
+    return await this.request(`/payments/installments/${planId}/auto-debit`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Refunds
+  async requestRefund(data: {
+    paymentId: string;
+    reason: string;
+    amount?: number;
+  }): Promise<ApiResponse<{ refund: unknown }>> {
+    return await this.request('/payments/refunds/request', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getRefundStatus(refundId: string): Promise<ApiResponse<unknown>> {
+    return await this.request(`/payments/refunds/${refundId}`);
+  }
+
+  async approveRefund(refundId: string, data: {
+    note?: string;
+  }): Promise<ApiResponse<unknown>> {
+    return await this.request(`/payments/refunds/${refundId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async rejectRefund(refundId: string, data: {
+    reason: string;
+  }): Promise<ApiResponse<unknown>> {
+    return await this.request(`/payments/refunds/${refundId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ==================== PRIORITY 5: STUDENT MANAGEMENT (BULK OPERATIONS) ====================
+  
+  async bulkEnrollStudents(data: {
+    batchId: string;
+    studentIds: string[];
+  }): Promise<ApiResponse<{ successCount: number; failedCount: number; errors: unknown[] }>> {
+    return await this.request('/student-management/bulk-enroll', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async importStudentsFromCSV(formData: FormData): Promise<ApiResponse<{
+    successCount: number;
+    failedCount: number;
+    errors: unknown[];
+  }>> {
+    const token = sessionManager.getToken();
+    const response = await fetch(`${API_BASE_URL}/student-management/import-csv`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = (await response
+        .json()
+        .catch(() => ({ message: 'Failed to import students' }))) as { message?: string };
+      throw new Error(errorData.message ?? 'Failed to import students');
+    }
+
+    return (await response.json()) as ApiResponse<{
+      successCount: number;
+      failedCount: number;
+      errors: unknown[];
+    }>;
+  }
+
+  async exportStudentsToCSV(params?: {
+    batchId?: string;
+    includeProgress?: boolean;
+  }): Promise<Blob> {
+    const token = sessionManager.getToken();
+    const query = params
+      ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
+      : '';
+    const response = await fetch(`${API_BASE_URL}/student-management/export-csv${query}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to export students');
+    }
+
+    return await response.blob();
+  }
+
+  async bulkSendMessages(data: {
+    studentIds: string[];
+    title: string;
+    message: string;
+    channels?: {
+      email?: boolean;
+      push?: boolean;
+      sms?: boolean;
+    };
+  }): Promise<ApiResponse<{ successCount: number; failedCount: number }>> {
+    return await this.request('/student-management/bulk-message', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getStudentProfileById(studentId: string): Promise<ApiResponse<{
+    user: User;
+    stats: {
+      totalBatches: number;
+      completedCourses: number;
+      averageScore: number;
+      attendancePercentage: number;
+      totalStudyTime: number;
+      videosCompleted: number;
+      assessmentsCompleted: number;
+    };
+    recentActivity: unknown[];
+  }>> {
+    return await this.request(`/student-management/${studentId}/profile`);
+  }
+
+  async getStudentEngagement(studentId: string): Promise<ApiResponse<{
+    engagementScore: number;
+    breakdown: {
+      attendance: number;
+      watchTime: number;
+      assessments: number;
+    };
+    trend: 'improving' | 'declining' | 'stable';
+  }>> {
+    return await this.request(`/student-management/${studentId}/engagement`);
+  }
+
+  // ==================== PRIORITY 6: PARENT PORTAL ====================
+  
+  async parentLogin(accessCode: string): Promise<ApiResponse<{
+    parent: unknown;
+    student: User;
+    token: string;
+  }>> {
+    return await this.request('/parent-portal/login', {
+      method: 'POST',
+      body: JSON.stringify({ accessCode }),
+    });
+  }
+
+  async getStudentProgressForParent(studentId: string): Promise<ApiResponse<{
+    enrollments: unknown[];
+    attendancePercentage: number;
+    averageScore: number;
+    completedVideos: number;
+    upcomingClasses: unknown[];
+  }>> {
+    return await this.request(`/parent-portal/student/${studentId}/progress`);
+  }
+
+  async getAttendanceReportForParent(studentId: string, params?: {
+    startDate?: string;
+    endDate?: string;
+  }): Promise<ApiResponse<unknown[]>> {
+    const query = params
+      ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
+      : '';
+    return await this.request(`/parent-portal/student/${studentId}/attendance${query}`);
+  }
+
+  async getPaymentHistoryForParent(studentId: string): Promise<ApiResponse<unknown[]>> {
+    return await this.request(`/parent-portal/student/${studentId}/payments`);
+  }
+
+  async updateParentPreferences(data: {
+    notifications?: Record<string, boolean>;
+  }): Promise<ApiResponse<unknown>> {
+    return await this.request('/parent-portal/preferences', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async generateParentAccessCode(data: {
+    studentId: string;
+    parentName: string;
+    parentEmail: string;
+    parentPhone?: string;
+    relationship: 'father' | 'mother' | 'guardian';
+  }): Promise<ApiResponse<{ accessCode: string }>> {
+    return await this.request('/parent-portal/generate-access-code', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ==================== PRIORITY 7: NOTIFICATION PREFERENCES ====================
+  
+  async getUserNotificationPreferences(): Promise<ApiResponse<{
+    email: Record<string, boolean>;
+    push: Record<string, boolean>;
+    sms: Record<string, boolean>;
+    inApp: Record<string, boolean>;
+  }>> {
+    return await this.request('/notification-preferences/user');
+  }
+
+  async updateNotificationPreferences(data: {
+    email?: Record<string, boolean>;
+    push?: Record<string, boolean>;
+    sms?: Record<string, boolean>;
+    inApp?: Record<string, boolean>;
+  }): Promise<ApiResponse<unknown>> {
+    return await this.request('/notification-preferences/user', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async resetNotificationPreferences(): Promise<ApiResponse<unknown>> {
+    return await this.request('/notification-preferences/user/reset', {
+      method: 'POST',
+    });
+  }
+
+  async getAllUsersNotificationPreferences(params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+  }): Promise<ApiResponse<unknown[]>> {
+    const query = params
+      ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
+      : '';
+    return await this.request(`/notification-preferences/all${query}`);
+  }
+
+  async bulkUpdateNotificationPreferences(data: {
+    userIds: string[];
+    preferences: Record<string, unknown>;
+  }): Promise<ApiResponse<{ successCount: number }>> {
+    return await this.request('/notification-preferences/bulk-update', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async subscribeToFCMTopic(data: {
+    fcmToken: string;
+    topic: string;
+  }): Promise<ApiResponse<{ message: string }>> {
+    return await this.request('/notification-preferences/subscribe', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async unsubscribeFromFCMTopic(data: {
+    fcmToken: string;
+    topic: string;
+  }): Promise<ApiResponse<{ message: string }>> {
+    return await this.request('/notification-preferences/unsubscribe', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ==================== PRIORITY 8: VIDEO PROGRESS TRACKING ====================
+  
+  async getVideoForPlayback(videoId: string): Promise<ApiResponse<{
+    video: {
+      id: string;
+      title: string;
+      description?: string;
+      videoUrl: string;
+      thumbnailUrl?: string;
+      duration: number;
+      quality?: string;
+      teacher: User;
+      views: number;
+    };
+    progress: {
+      currentTime: number;
+      watchedPercentage: number;
+      completionStatus: string;
+      lastWatchedAt?: string;
+    };
+  }>> {
+    return await this.request(`/video-player/${videoId}`);
+  }
+
+  async updateVideoProgress(videoId: string, data: {
+    currentTime: number;
+    duration?: number;
+    playbackSpeed?: number;
+    quality?: string;
+  }): Promise<ApiResponse<{
+    currentTime: number;
+    watchedPercentage: number;
+    completionStatus: string;
+    totalWatchTime: number;
+  }>> {
+    return await this.request(`/video-player/${videoId}/progress`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async markVideoCompleted(videoId: string): Promise<ApiResponse<unknown>> {
+    return await this.request(`/video-player/${videoId}/complete`, {
+      method: 'POST',
+    });
+  }
+
+  async getStudentVideoProgress(params?: {
+    batchId?: string;
+    courseId?: string;
+  }): Promise<ApiResponse<{
+    progress: unknown[];
+    summary: {
+      totalVideos: number;
+      completedVideos: number;
+      inProgressVideos: number;
+      totalWatchTime: number;
+      completionPercentage: number;
+    };
+  }>> {
+    const query = params
+      ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
+      : '';
+    return await this.request(`/video-player/progress${query}`);
+  }
+
+  async markVideoDownloaded(videoId: string): Promise<ApiResponse<{ message: string }>> {
+    return await this.request(`/video-player/${videoId}/download`, {
+      method: 'POST',
+    });
+  }
+
+  async getDownloadedVideos(): Promise<ApiResponse<unknown[]>> {
+    return await this.request('/video-player/downloaded');
+  }
+
+  // ==================== BATCH SCHEDULE MANAGEMENT ====================
+  
+  async getBatchSchedule(batchId: string): Promise<ApiResponse<{
+    schedule: Array<{
+      id?: string;
+      day: string;
+      startTime: string;
+      endTime: string;
+      topic?: string;
+      description?: string;
+      isRecurring?: boolean;
+    }>;
+  }>> {
+    return await this.request(`/batches/${batchId}/schedule`);
+  }
+
+  async updateBatchSchedule(batchId: string, data: {
+    schedule: Array<{
+      day: string;
+      startTime: string;
+      endTime: string;
+      topic?: string;
+      description?: string;
+      isRecurring?: boolean;
+    }>;
+  }): Promise<ApiResponse<Batch>> {
+    return await this.request(`/batches/${batchId}/schedule`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ==================== BATCH SETTINGS MANAGEMENT ====================
+  
+  async updateBatchSettings(batchId: string, data: {
+    isActive?: boolean;
+    isPublished?: boolean;
+    allowWaitlist?: boolean;
+    autoEnrollment?: boolean;
+    notificationsEnabled?: boolean;
+    recordingEnabled?: boolean;
+    chatEnabled?: boolean;
+  }): Promise<ApiResponse<Batch>> {
+    return await this.request(`/batches/${batchId}/settings`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ==================== STUDENT ENROLLMENT IN BATCH ====================
+  
+  async addStudentsToBatch(batchId: string, data: {
+    studentIds: string[];
+  }): Promise<ApiResponse<{ successCount: number; failedCount: number; errors: unknown[] }>> {
+    return await this.request(`/batches/${batchId}/students/bulk-add`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async removeStudentFromBatchById(batchId: string, studentId: string): Promise<ApiResponse<{ message: string }>> {
+    return await this.request(`/batches/${batchId}/students/${studentId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getAvailableStudentsForBatch(batchId: string, search?: string): Promise<ApiResponse<User[]>> {
+    const query = search ? `?search=${encodeURIComponent(search)}` : '';
+    return await this.request(`/batches/${batchId}/available-students${query}`);
+  }
+
+  // ==================== SCHEDULE SESSION MANAGEMENT ====================
+  
+  async addScheduleSession(batchId: string, data: {
+    topic: string;
+    description?: string;
+    startTime: string;
+    endTime: string;
+    meetingLink?: string;
+    duration?: number;
+    type?: string;
+  }): Promise<ApiResponse<{
+    _id: string;
+    topic: string;
+    description: string;
+    startTime: string;
+    endTime: string;
+    meetingLink: string;
+    duration: number;
+    type: string;
+    status: string;
+  }>> {
+    return await this.request(`/batches/${batchId}/schedule`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateScheduleSession(batchId: string, sessionId: string, data: {
+    topic?: string;
+    description?: string;
+    startTime?: string;
+    endTime?: string;
+    meetingLink?: string;
+    duration?: number;
+    type?: string;
+    status?: string;
+  }): Promise<ApiResponse<{
+    _id: string;
+    topic: string;
+    description: string;
+    startTime: string;
+    endTime: string;
+    meetingLink: string;
+    duration: number;
+    type: string;
+    status: string;
+  }>> {
+    return await this.request(`/batches/${batchId}/schedule/${sessionId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteScheduleSession(batchId: string, sessionId: string): Promise<ApiResponse<{ message: string }>> {
+    return await this.request(`/batches/${batchId}/schedule/${sessionId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ==================== BATCH MATERIALS MANAGEMENT ====================
+  
+  async getBatchMaterials(batchId: string): Promise<ApiResponse<Array<{
+    _id: string;
+    title: string;
+    description: string;
+    type: string;
+    url: string;
+    fileSize: number;
+    duration: number;
+    uploadedBy: string;
+    uploadedAt: string;
+    views: number;
+    downloads: number;
+  }>>> {
+    return await this.request(`/batches/${batchId}/materials`);
+  }
+
+  async addBatchMaterial(batchId: string, data: {
+    title: string;
+    description?: string;
+    type: string;
+    url: string;
+    fileSize?: number;
+    duration?: number;
+  }): Promise<ApiResponse<{
+    _id: string;
+    title: string;
+    description: string;
+    type: string;
+    url: string;
+    fileSize: number;
+    duration: number;
+    uploadedBy: string;
+    uploadedAt: string;
+  }>> {
+    return await this.request(`/batches/${batchId}/materials`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateBatchMaterial(batchId: string, materialId: string, data: {
+    title?: string;
+    description?: string;
+    type?: string;
+    url?: string;
+    fileSize?: number;
+    duration?: number;
+  }): Promise<ApiResponse<{
+    _id: string;
+    title: string;
+    description: string;
+    type: string;
+    url: string;
+  }>> {
+    return await this.request(`/batches/${batchId}/materials/${materialId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteBatchMaterial(batchId: string, materialId: string): Promise<ApiResponse<{ message: string }>> {
+    return await this.request(`/batches/${batchId}/materials/${materialId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ==================== BATCH CONTENT ASSIGNMENT ====================
+  
+  async getBatchContent(batchId: string): Promise<ApiResponse<{
+    lessons: unknown[];
+    materials: unknown[];
+    assessments: unknown[];
+  }>> {
+    return await this.request(`/batches/${batchId}/content`);
+  }
+
+  async assignContentToBatch(batchId: string, data: {
+    contentType: 'lesson' | 'material' | 'assessment';
+    contentId: string;
+    dueDate?: string;
+    isRequired?: boolean;
+  }): Promise<ApiResponse<{ message: string }>> {
+    return await this.request(`/batches/${batchId}/content/assign`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async removeContentFromBatch(batchId: string, contentId: string, contentType: string): Promise<ApiResponse<{ message: string }>> {
+    return await this.request(`/batches/${batchId}/content/${contentType}/${contentId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ==================== GENERIC GET REQUEST ====================
+  
+  async get<T>(endpoint: string): Promise<ApiResponse<T>> {
+    return await this.request<ApiResponse<T>>(endpoint);
+  }
+}
+
+export const apiService = new ApiService();

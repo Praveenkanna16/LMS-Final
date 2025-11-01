@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear GenZEd Authentication</title>
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            padding: 20px; 
+            max-width: 600px; 
+            margin: 0 auto;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        button { 
+            padding: 15px 30px; 
+            background: #dc2626; 
+            color: white; 
+            border: none; 
+            border-radius: 10px; 
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            margin: 10px;
+            transition: all 0.3s ease;
+        }
+        button:hover { 
+            background: #b91c1c; 
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(220, 38, 38, 0.4);
+        }
+        .success { 
+            color: #10b981; 
+            margin: 15px 0; 
+            padding: 10px;
+            background: rgba(16, 185, 129, 0.1);
+            border-radius: 8px;
+        }
+        .error { 
+            color: #ef4444; 
+            margin: 15px 0; 
+            padding: 10px;
+            background: rgba(239, 68, 68, 0.1);
+            border-radius: 8px;
+        }
+        .info {
+            background: rgba(59, 130, 246, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border-left: 4px solid #3b82f6;
+        }
+        .steps {
+            text-align: left;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        .step {
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+        }
+        .step-number {
+            background: #3b82f6;
+            color: white;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>🔧 GenZEd LMS - Clear Authentication Data</h2>
+        <p>You're experiencing authentication issues because there's corrupted data stored in your browser. Let's fix this!</p>
+        
+        <div class="info">
+            <strong>What's happening:</strong> Your browser has stored an invalid authentication token from a previous session. This is preventing login and registration from working properly.
+        </div>
+        
+        <div class="steps">
+            <h3>📋 What this will do:</h3>
+            <div class="step">
+                <div class="step-number">1</div>
+                <span>Clear all GenZEd authentication data from localStorage</span>
+            </div>
+            <div class="step">
+                <div class="step-number">2</div>
+                <span>Remove corrupted tokens and user data</span>
+            </div>
+            <div class="step">
+                <div class="step-number">3</div>
+                <span>Allow fresh login/registration</span>
+            </div>
+            <div class="step">
+                <div class="step-number">4</div>
+                <span>Redirect to login page</span>
+            </div>
+        </div>
+        
+        <button onclick="clearAllAuthData()">🗑️ Clear All Authentication Data</button>
+        <button onclick="testRegistration()">🧪 Test Registration API</button>
+        
+        <div id="status"></div>
+        
+        <div class="info">
+            <strong>After clearing:</strong> Visit <a href="http://localhost:8084/login" style="color: #fbbf24;">http://localhost:8084/login</a> and try logging in or registering a new account.
+        </div>
+    </div>
+    
+    <script>
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = `<div class="${type}">${message}</div>`;
+        }
+        
+        function clearAllAuthData() {
+            try {
+                // Clear all GenZEd related localStorage items
+                const keysToRemove = [
+                    'genzed_token',
+                    'genzed_user', 
+                    'genzed_auth_timestamp',
+                    'genzed_session_active',
+                    'genzed-auth-store'
+                ];
+                
+                keysToRemove.forEach(key => {
+                    localStorage.removeItem(key);
+                });
+                
+                // Also clear any other auth-related items that might exist
+                Object.keys(localStorage).forEach(key => {
+                    if (key.includes('auth') || key.includes('token') || key.includes('genzed')) {
+                        localStorage.removeItem(key);
+                    }
+                });
+                
+                showStatus('✅ All authentication data cleared successfully! Redirecting to login...', 'success');
+                
+                // Redirect to login page after 2 seconds
+                setTimeout(() => {
+                    window.location.href = 'http://localhost:8084/login';
+                }, 2000);
+                
+            } catch (error) {
+                showStatus('❌ Error clearing authentication data: ' + error.message, 'error');
+            }
+        }
+        
+        async function testRegistration() {
+            try {
+                showStatus('🔄 Testing registration API...', 'info');
+                
+                const response = await fetch('http://localhost:5001/api/auth/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        name: 'API Test User',
+                        email: 'apitest@example.com',
+                        password: 'password123',
+                        role: 'student'
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    showStatus('✅ Registration API is working perfectly!', 'success');
+                } else {
+                    showStatus('❌ Registration API error: ' + (data.error || 'Unknown error'), 'error');
+                }
+                
+            } catch (error) {
+                showStatus('❌ Network error: ' + error.message, 'error');
+            }
+        }
+        
+        // Auto-test the API when page loads
+        window.addEventListener('load', () => {
+            testRegistration();
+        });
+    </script>
+</body>
+</html>

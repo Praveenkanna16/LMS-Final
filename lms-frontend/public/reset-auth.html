@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Reset GenZEd Authentication</title>
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            padding: 20px; 
+            max-width: 600px; 
+            margin: 0 auto;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        button { 
+            padding: 15px 30px; 
+            background: #10b981; 
+            color: white; 
+            border: none; 
+            border-radius: 10px; 
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            margin: 10px;
+            transition: all 0.3s ease;
+        }
+        button:hover { 
+            background: #059669; 
+            transform: translateY(-2px);
+        }
+        .success { 
+            color: #10b981; 
+            margin: 15px 0; 
+            padding: 10px;
+            background: rgba(16, 185, 129, 0.1);
+            border-radius: 8px;
+        }
+        .info {
+            background: rgba(59, 130, 246, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+        }
+        .steps {
+            text-align: left;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        .step {
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+        }
+        .step-number {
+            background: #3b82f6;
+            color: white;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+            font-weight: bold;
+        }
+        pre {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 12px;
+            text-align: left;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>🔧 Reset GenZEd Authentication</h2>
+        <p>This tool will completely reset your authentication state.</p>
+        
+        <div class="info">
+            <strong>🔍 Problem Detected:</strong>
+            <br>Your browser has corrupted authentication data causing login issues and redirect loops.
+        </div>
+        
+        <div class="steps">
+            <h3>📋 What this will do:</h3>
+            <div class="step">
+                <div class="step-number">1</div>
+                <span>Clear all GenZEd authentication data from localStorage</span>
+            </div>
+            <div class="step">
+                <div class="step-number">2</div>
+                <span>Remove corrupted tokens and user sessions</span>
+            </div>
+            <div class="step">
+                <div class="step-number">3</div>
+                <span>Reset authentication state to fresh</span>
+            </div>
+            <div class="step">
+                <div class="step-number">4</div>
+                <span>Redirect to login for new authentication</span>
+            </div>
+        </div>
+        
+        <button onclick="resetAuth()">🚀 Reset Authentication & Redirect</button>
+        
+        <div class="info">
+            <strong>Alternative:</strong> If the button doesn't work, copy and paste this code into your browser console:
+            <pre>localStorage.clear(); window.location.href = 'http://localhost:8084/login';</pre>
+        </div>
+        
+        <div id="status"></div>
+    </div>
+    
+    <script>
+        function resetAuth() {
+            try {
+                // Clear all GenZEd related localStorage items
+                const keysToRemove = [
+                    'genzed_token',
+                    'genzed_user', 
+                    'genzed_auth_timestamp',
+                    'genzed_session_active',
+                    'genzed-auth-store'
+                ];
+                
+                keysToRemove.forEach(key => {
+                    localStorage.removeItem(key);
+                });
+                
+                // Also clear any other auth-related items
+                Object.keys(localStorage).forEach(key => {
+                    if (key.includes('auth') || key.includes('token') || key.includes('genzed')) {
+                        localStorage.removeItem(key);
+                    }
+                });
+                
+                document.getElementById('status').innerHTML = 
+                    '<div class="success">✅ Authentication reset successful! Redirecting...</div>';
+                
+                // Redirect to login page after 2 seconds
+                setTimeout(() => {
+                    window.location.href = 'http://localhost:8084/login';
+                }, 2000);
+                
+            } catch (error) {
+                document.getElementById('status').innerHTML = 
+                    '<div class="error">❌ Error: ' + error.message + '</div>';
+            }
+        }
+    </script>
+</body>
+</html>

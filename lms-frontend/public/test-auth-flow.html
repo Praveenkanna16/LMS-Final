@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test GenZEd Auth Flow</title>
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            padding: 20px; 
+            max-width: 800px; 
+            margin: 0 auto;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        button { 
+            padding: 12px 24px; 
+            background: #3b82f6; 
+            color: white; 
+            border: none; 
+            border-radius: 8px; 
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+            transition: all 0.3s ease;
+        }
+        button:hover { 
+            background: #2563eb; 
+            transform: translateY(-1px);
+        }
+        button.danger { background: #dc2626; }
+        button.danger:hover { background: #b91c1c; }
+        button.success { background: #059669; }
+        button.success:hover { background: #047857; }
+        .result {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        .success { color: #10b981; }
+        .error { color: #ef4444; }
+        .info { color: #3b82f6; }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>🔧 GenZEd LMS - Authentication Flow Test</h2>
+        <p>Test the complete registration and login flow step by step.</p>
+        
+        <div class="test-section">
+            <h3>1️⃣ Clear Authentication Data</h3>
+            <button class="danger" onclick="clearAuthData()">🗑️ Clear localStorage</button>
+            <div id="clearResult" class="result"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>2️⃣ Test Registration API</h3>
+            <button onclick="testRegistration()">📝 Test Registration</button>
+            <div id="registerResult" class="result"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>3️⃣ Test Login API</h3>
+            <button onclick="testLogin()">🔐 Test Login</button>
+            <div id="loginResult" class="result"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>4️⃣ Test Token Verification</h3>
+            <button onclick="testTokenVerification()">✅ Test Token Verification</button>
+            <div id="tokenResult" class="result"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>5️⃣ Test Complete Flow</h3>
+            <button class="success" onclick="testCompleteFlow()">🚀 Test Full Registration → Login → Verification</button>
+            <div id="completeResult" class="result"></div>
+        </div>
+        
+        <div style="margin-top: 30px; padding: 20px; background: rgba(59, 130, 246, 0.1); border-radius: 10px;">
+            <h3>📋 Manual Instructions</h3>
+            <p>If the automated tests don't work, try these manual steps:</p>
+            <ol>
+                <li>Clear localStorage using the button above</li>
+                <li>Visit: <a href="http://localhost:8084/register" style="color: #fbbf24;">Registration Page</a></li>
+                <li>Create a new account with any email/password</li>
+                <li>After successful registration, you'll be redirected to dashboard</li>
+                <li>Test login with the same credentials</li>
+            </ol>
+        </div>
+    </div>
+    
+    <script>
+        async function makeRequest(url, options = {}) {
+            try {
+                const response = await fetch(url, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    },
+                    ...options
+                });
+                const data = await response.json();
+                return { response, data };
+            } catch (error) {
+                return { error: error.message };
+            }
+        }
+        
+        function showResult(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            element.innerHTML = `<span class="${type}">${new Date().toLocaleTimeString()}: ${message}</span>`;
+        }
+        
+        function clearAuthData() {
+            try {
+                // Clear all GenZEd related localStorage items
+                const keysToRemove = [
+                    'genzed_token',
+                    'genzed_user', 
+                    'genzed_auth_timestamp',
+                    'genzed_session_active',
+                    'genzed-auth-store'
+                ];
+                
+                keysToRemove.forEach(key => {
+                    localStorage.removeItem(key);
+                });
+                
+                // Also clear any other auth-related items
+                Object.keys(localStorage).forEach(key => {
+                    if (key.includes('auth') || key.includes('token') || key.includes('genzed')) {
+                        localStorage.removeItem(key);
+                    }
+                });
+                
+                showResult('clearResult', '✅ Authentication data cleared successfully!', 'success');
+                
+            } catch (error) {
+                showResult('clearResult', '❌ Error: ' + error.message, 'error');
+            }
+        }
+        
+        async function testRegistration() {
+            showResult('registerResult', '🔄 Testing registration...', 'info');
+            
+            const { response, data, error } = await makeRequest('http://localhost:5001/api/auth/register', {
+                method: 'POST',
+                body: JSON.stringify({
+                    name: 'Test User ' + Date.now(),
+                    email: 'test' + Date.now() + '@example.com',
+                    password: 'password123',
+                    role: 'student'
+                })
+            });
+            
+            if (error) {
+                showResult('registerResult', '❌ Network Error: ' + error, 'error');
+            } else if (response.ok && data.success) {
+                showResult('registerResult', '✅ Registration successful!\n' + JSON.stringify(data, null, 2), 'success');
+            } else {
+                showResult('registerResult', '❌ Registration failed: ' + (data.error || 'Unknown error'), 'error');
+            }
+        }
+        
+        async function testLogin() {
+            showResult('loginResult', '🔄 Testing login...', 'info');
+            
+            const { response, data, error } = await makeRequest('http://localhost:5001/api/auth/login', {
+                method: 'POST',
+                body: JSON.stringify({
+                    email: 'test@example.com',
+                    password: 'password123'
+                })
+            });
+            
+            if (error) {
+                showResult('loginResult', '❌ Network Error: ' + error, 'error');
+            } else if (response.ok && data.success) {
+                showResult('loginResult', '✅ Login successful!\n' + JSON.stringify(data, null, 2), 'success');
+            } else {
+                showResult('loginResult', '❌ Login failed: ' + (data.error || 'User not found - register first'), 'error');
+            }
+        }
+        
+        async function testTokenVerification() {
+            showResult('tokenResult', '🔄 Testing token verification...', 'info');
+            
+            // First register a user to get a token
+            const { data: registerData } = await makeRequest('http://localhost:5001/api/auth/register', {
+                method: 'POST',
+                body: JSON.stringify({
+                    name: 'Token Test User',
+                    email: 'tokentest@example.com',
+                    password: 'password123',
+                    role: 'student'
+                })
+            });
+            
+            if (registerData && registerData.success && registerData.data.token) {
+                // Now test the token
+                const { response, data, error } = await makeRequest('http://localhost:5001/api/auth/me', {
+                    headers: {
+                        'Authorization': 'Bearer ' + registerData.data.token
+                    }
+                });
+                
+                if (error) {
+                    showResult('tokenResult', '❌ Network Error: ' + error, 'error');
+                } else if (response.ok && data.success) {
+                    showResult('tokenResult', '✅ Token verification successful!\n' + JSON.stringify(data, null, 2), 'success');
+                } else {
+                    showResult('tokenResult', '❌ Token verification failed: ' + (data.error || 'Invalid token'), 'error');
+                }
+            } else {
+                showResult('tokenResult', '❌ Could not get test token - registration failed', 'error');
+            }
+        }
+        
+        async function testCompleteFlow() {
+            showResult('completeResult', '🔄 Testing complete authentication flow...', 'info');
+            
+            try {
+                // Step 1: Register
+                const { data: registerData } = await makeRequest('http://localhost:5001/api/auth/register', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        name: 'Complete Flow Test',
+                        email: 'complete' + Date.now() + '@example.com',
+                        password: 'password123',
+                        role: 'student'
+                    })
+                });
+                
+                if (!registerData || !registerData.success) {
+                    throw new Error('Registration failed: ' + (registerData?.error || 'Unknown error'));
+                }
+                
+                // Step 2: Login
+                const { data: loginData } = await makeRequest('http://localhost:5001/api/auth/login', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        email: registerData.data.user.email,
+                        password: 'password123'
+                    })
+                });
+                
+                if (!loginData || !loginData.success) {
+                    throw new Error('Login failed: ' + (loginData?.error || 'Unknown error'));
+                }
+                
+                // Step 3: Verify token
+                const { data: verifyData } = await makeRequest('http://localhost:5001/api/auth/me', {
+                    headers: {
+                        'Authorization': 'Bearer ' + loginData.data.token
+                    }
+                });
+                
+                if (!verifyData || !verifyData.success) {
+                    throw new Error('Token verification failed: ' + (verifyData?.error || 'Unknown error'));
+                }
+                
+                showResult('completeResult', '✅ Complete flow successful!\n' + 
+                    '1. Registration: ✅\n' + 
+                    '2. Login: ✅\n' + 
+                    '3. Token Verification: ✅\n\n' + 
+                    'User: ' + JSON.stringify(verifyData.data, null, 2), 'success');
+                
+            } catch (error) {
+                showResult('completeResult', '❌ Complete flow failed: ' + error.message, 'error');
+            }
+        }
+    </script>
+</body>
+</html>

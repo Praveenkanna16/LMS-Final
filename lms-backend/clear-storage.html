@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear GenZEd Storage</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        button { padding: 10px 20px; background: #dc2626; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #b91c1c; }
+        .success { color: #059669; margin: 10px 0; }
+        .error { color: #dc2626; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h2>GenZEd LMS - Clear Storage</h2>
+    <p>This will clear all stored authentication data and allow you to login fresh.</p>
+    
+    <button onclick="clearStorage()">Clear All Storage</button>
+    
+    <div id="status"></div>
+    
+    <script>
+        function clearStorage() {
+            try {
+                // Clear all GenZEd related localStorage items
+                localStorage.removeItem('genzed_token');
+                localStorage.removeItem('genzed_user');
+                localStorage.removeItem('genzed_auth_timestamp');
+                localStorage.removeItem('genzed_session_active');
+                localStorage.removeItem('genzed-auth-store');
+                
+                // Also clear any other auth-related items
+                Object.keys(localStorage).forEach(key => {
+                    if (key.includes('auth') || key.includes('token') || key.includes('genzed')) {
+                        localStorage.removeItem(key);
+                    }
+                });
+                
+                document.getElementById('status').innerHTML = '<div class="success">✅ Storage cleared successfully! You can now login fresh.</div>';
+                
+                // Redirect to login page after 2 seconds
+                setTimeout(() => {
+                    window.location.href = 'http://localhost:8084/login';
+                }, 2000);
+                
+            } catch (error) {
+                document.getElementById('status').innerHTML = '<div class="error">❌ Error clearing storage: ' + error.message + '</div>';
+            }
+        }
+    </script>
+</body>
+</html>
