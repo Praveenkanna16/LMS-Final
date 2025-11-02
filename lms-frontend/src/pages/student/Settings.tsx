@@ -1,15 +1,14 @@
 import React, { useState } from 'react';
-import { Layout } from '@/components/layout/Layout';
-import { useAuth } from '@/contexts/AuthContext';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import StudentCard from '@/components/StudentCard';
-import StudentButton from '@/components/StudentButton';
+import { Layout } from '../../components/layout/Layout';
+import { useAuth } from '../../contexts/AuthContext';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
+import { Badge } from '../../components/ui/badge';
+import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { Label } from '../../components/ui/label';
+import { Switch } from '../../components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
+import { Textarea } from '../../components/ui/textarea'; // Imported Textarea
 import {
   Settings,
   User,
@@ -185,9 +184,10 @@ const SettingsPage: React.FC = () => {
                     <div>
                       <h3 className='font-semibold text-gray-900'>{profile.name}</h3>
                       <p className='text-sm text-gray-600'>Student</p>
-                      <StudentButton size='sm' variant='outline' className='mt-2'>
+                      {/* Changed from StudentButton to Button */}
+                      <Button size='sm' variant='outline' className='mt-2'>
                         Change Photo
-                      </StudentButton>
+                      </Button>
                     </div>
                   </div>
 
@@ -258,7 +258,8 @@ const SettingsPage: React.FC = () => {
 
                   <div className='space-y-2'>
                     <Label htmlFor='bio'>Bio</Label>
-                    <textarea
+                    {/* Replaced manual textarea with shadcn/ui Textarea */}
+                    <Textarea
                       id='bio'
                       rows={3}
                       value={profile.bio}
@@ -266,7 +267,6 @@ const SettingsPage: React.FC = () => {
                         setProfile(prev => ({ ...prev, bio: e.target.value }));
                       }}
                       disabled={!isEditing}
-                      className='w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none'
                       placeholder='Tell us about yourself...'
                     />
                   </div>
@@ -274,30 +274,33 @@ const SettingsPage: React.FC = () => {
                   <div className='flex items-center justify-between pt-4'>
                     {isEditing ? (
                       <div className='flex gap-2'>
-                        <StudentButton
+                        {/* Changed from StudentButton to Button */}
+                        <Button
                           onClick={handleSaveProfile}
                           className='bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700'
                         >
                           <Save className='w-4 h-4 mr-2' />
                           Save Changes
-                        </StudentButton>
-                        <StudentButton
+                        </Button>
+                        {/* Changed from StudentButton to Button */}
+                        <Button
                           variant='outline'
                           onClick={() => {
                             setIsEditing(false);
                           }}
                         >
                           Cancel
-                        </StudentButton>
+                        </Button>
                       </div>
                     ) : (
-                      <StudentButton
+                      // Changed from StudentButton to Button
+                      <Button
                         onClick={() => {
                           setIsEditing(true);
                         }}
                       >
                         Edit Profile
-                      </StudentButton>
+                      </Button>
                     )}
                   </div>
                 </CardContent>
@@ -512,7 +515,8 @@ const SettingsPage: React.FC = () => {
                             Add an extra layer of security to your account
                           </p>
                         </div>
-                        <StudentButton variant='outline'>Enable 2FA</StudentButton>
+                        {/* Changed from StudentButton to Button */}
+                        <Button variant='outline'>Enable 2FA</Button>
                       </div>
 
                       <div className='flex items-center justify-between'>
@@ -520,7 +524,8 @@ const SettingsPage: React.FC = () => {
                           <Label className='text-base'>Change Password</Label>
                           <p className='text-sm text-gray-500'>Update your account password</p>
                         </div>
-                        <StudentButton variant='outline'>Change Password</StudentButton>
+                        {/* Changed from StudentButton to Button */}
+                        <Button variant='outline'>Change Password</Button>
                       </div>
 
                       <div className='flex items-center justify-between'>
@@ -528,7 +533,8 @@ const SettingsPage: React.FC = () => {
                           <Label className='text-base'>Download My Data</Label>
                           <p className='text-sm text-gray-500'>Export all your account data</p>
                         </div>
-                        <StudentButton variant='outline'>Download</StudentButton>
+                        {/* Changed from StudentButton to Button */}
+                        <Button variant='outline'>Download</Button>
                       </div>
                     </div>
                   </div>
@@ -639,10 +645,11 @@ const SettingsPage: React.FC = () => {
                   </div>
 
                   <div className='pt-6 border-t border-gray-200'>
-                    <StudentButton className='bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600'>
+                    {/* Changed from StudentButton to Button */}
+                    <Button className='bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600'>
                       <Save className='w-4 h-4 mr-2' />
                       Save Preferences
-                    </StudentButton>
+                    </Button>
                   </div>
                 </CardContent>
               </Card>

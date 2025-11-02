@@ -20,7 +20,7 @@ import {
   FileText,
   Users,
   Award,
-  
+
   Info,
   Settings,
   Volume2,
@@ -63,9 +63,9 @@ const Notifications: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
-  const userId = String((user as any).id || (user as any)._id || (user as any).userId || '');
-  const resolvedToken = localStorage.getItem('genzed_token') || localStorage.getItem('token') || token || '';
-  socketService.connect(userId, resolvedToken);
+    const userId = String((user as any).id || (user as any)._id || (user as any).userId || '');
+    const resolvedToken = localStorage.getItem('genzed_token') || localStorage.getItem('token') || token || '';
+    socketService.connect(userId, resolvedToken);
 
     const handleIncoming = (notif: any) => {
       setNotifications(prev => [notif, ...prev]);
@@ -86,12 +86,12 @@ const Notifications: React.FC = () => {
     try {
       setLoading(true);
       const response = await apiService.getNotifications();
-      
+
       if (response.success && response.data) {
         const notificationList = (response.data as any).notifications || response.data;
-        const unread = (response.data as any).unreadCount || 
-                      notificationList.filter((n: any) => !n.isRead).length;
-        
+        const unread = (response.data as any).unreadCount ||
+          notificationList.filter((n: any) => !n.isRead).length;
+
         setNotifications(Array.isArray(notificationList) ? notificationList : []);
         setUnreadCount(unread);
       } else {
@@ -111,10 +111,10 @@ const Notifications: React.FC = () => {
   const handleMarkAsRead = async (notificationId: string | number) => {
     try {
       const response = await apiService.markNotificationAsRead(String(notificationId));
-      
+
       if (response.success) {
         toast.success('Notification marked as read');
-        setNotifications(prev => 
+        setNotifications(prev =>
           prev.map(n => n.id === notificationId ? { ...n, isRead: true } : n)
         );
         setUnreadCount(prev => Math.max(0, prev - 1));
@@ -128,11 +128,11 @@ const Notifications: React.FC = () => {
   const handleMarkAllAsRead = async () => {
     try {
       const unreadNotifications = notifications.filter(n => !n.isRead);
-      
+
       await Promise.all(
         unreadNotifications.map(n => apiService.markNotificationAsRead(String(n.id)))
       );
-      
+
       toast.success('All notifications marked as read');
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
       setUnreadCount(0);
@@ -279,25 +279,27 @@ const Notifications: React.FC = () => {
                   <p className='text-blue-100 text-lg mb-6'>
                     Stay updated with your learning activities and announcements
                   </p>
-                  <div className='flex items-center gap-4 flex-wrap'>
+                  <div className="flex items-center gap-4 flex-wrap">
                     <Button
-                      size='lg'
-                      className='bg-white text-blue-600 hover:bg-blue-50 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300'
-                      onClick={() => navigate('/student/batches')}
+                      size="lg"
+                      className="bg-white text-blue-600 hover:bg-blue-50 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300"
+                      onClick={() => navigate("/student/batches")}
                     >
-                      <Users className='w-5 h-5 mr-2' />
+                      <Users className="w-5 h-5 mr-2" />
                       My Batches
                     </Button>
+
                     <Button
-                      size='lg'
-                      variant='outline'
-                      className='border-2 border-white/50 text-white hover:bg-white/10 backdrop-blur-sm'
-                      onClick={() => navigate('/courses')}
+                      size="lg"
+                      variant="ghost"
+                      className="border-2 border-white/50 text-white hover:bg-white/10 hover:text-white backdrop-blur-sm transition-all duration-300"
+                      onClick={() => navigate("/courses")}
                     >
-                      <BookOpen className='w-5 h-5 mr-2' />
+                      <BookOpen className="w-5 h-5 mr-2" />
                       Browse Courses
                     </Button>
                   </div>
+
                 </div>
               </div>
             </Card>
@@ -393,15 +395,14 @@ const Notifications: React.FC = () => {
                       {filteredNotifications.map(notification => {
                         const iconData = getNotificationIcon(notification.type);
                         const IconComponent = iconData.icon;
-                        
+
                         return (
                           <div
                             key={notification.id}
-                            className={`rounded-2xl p-6 border-l-4 hover:shadow-lg transition-all duration-300 ${
-                              notification.priority 
+                            className={`rounded-2xl p-6 border-l-4 hover:shadow-lg transition-all duration-300 ${notification.priority
                                 ? getPriorityColor(notification.priority)
                                 : 'border-l-blue-500 bg-blue-50/50'
-                            } ${!notification.isRead ? 'ring-2 ring-blue-300/50' : ''}`}
+                              } ${!notification.isRead ? 'ring-2 ring-blue-300/50' : ''}`}
                           >
                             <div className='flex items-start gap-4'>
                               <div className={`w-12 h-12 rounded-xl ${iconData.bg} flex items-center justify-center shadow-md`}>

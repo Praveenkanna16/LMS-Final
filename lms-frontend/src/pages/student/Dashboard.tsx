@@ -79,8 +79,8 @@ const StudentDashboard: React.FC = () => {
   React.useEffect(() => {
     const user = sessionManager.getUser();
     if (user?.id) {
-  const token = localStorage.getItem('genzed_token') || localStorage.getItem('token') || '';
-  socketService.connect(user.id.toString(), token);
+      const token = localStorage.getItem('genzed_token') || localStorage.getItem('token') || '';
+      socketService.connect(user.id.toString(), token);
 
       // Join all student's batches to receive updates
       const joinStudentBatches = async () => {
@@ -148,7 +148,7 @@ const StudentDashboard: React.FC = () => {
   }
 
   if (error) {
-  // Error UI shown below; toast is handled by top-level effect to keep hooks stable
+    // Error UI shown below; toast is handled by top-level effect to keep hooks stable
     return (
       <Layout>
         <div className='flex items-center justify-center min-h-[60vh]'>
@@ -221,40 +221,37 @@ const StudentDashboard: React.FC = () => {
                   <p className='text-blue-100 text-lg mb-6'>
                     Track your learning progress with AI-powered insights
                   </p>
-                  <div className='flex items-center gap-4 flex-wrap'>
+                  <div className="flex items-center gap-4 flex-wrap">
                     <Button
-                      size='lg'
-                      className='bg-white text-blue-600 hover:bg-blue-50 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300'
-                      onClick={() => {
-                        navigate('/student/batches');
-                      }}
+                      size="lg"
+                      className="bg-white text-blue-600 hover:bg-blue-50 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300"
+                      onClick={() => navigate("/student/batches")}
                     >
-                      <PlayCircle className='w-5 h-5 mr-2' />
+                      <PlayCircle className="w-5 h-5 mr-2" />
                       Continue Learning
                     </Button>
+
                     <Button
-                      size='lg'
-                      variant='outline'
-                      className='border-2 border-white/50 text-white hover:bg-white/10 backdrop-blur-sm'
-                      onClick={() => {
-                        navigate('/student/progress');
-                      }}
+                      size="lg"
+                      variant="ghost"
+                      className="border-2 border-white/50 text-white hover:bg-white/10 hover:text-white backdrop-blur-sm transition-all duration-300"
+                      onClick={() => navigate("/student/progress")}
                     >
-                      <BarChart3 className='w-5 h-5 mr-2' />
+                      <BarChart3 className="w-5 h-5 mr-2" />
                       View Progress
                     </Button>
+
                     <Button
-                      size='lg'
-                      variant='outline'
-                      className='border-2 border-white/50 text-white hover:bg-white/10 backdrop-blur-sm'
-                      onClick={() => {
-                        navigate('/student/schedule');
-                      }}
+                      size="lg"
+                      variant="ghost"
+                      className="border-2 border-white/50 text-white hover:bg-white/10 hover:text-white backdrop-blur-sm transition-all duration-300"
+                      onClick={() => navigate("/student/schedule")}
                     >
-                      <Calendar className='w-5 h-5 mr-2' />
+                      <Calendar className="w-5 h-5 mr-2" />
                       My Schedule
                     </Button>
                   </div>
+
                 </div>
               </div>
             </Card>
