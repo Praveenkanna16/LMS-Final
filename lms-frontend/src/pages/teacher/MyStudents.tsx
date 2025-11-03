@@ -217,7 +217,7 @@ export default function TeacherMyStudents() {
               <Button
                 onClick={() => { void refreshStudents(); }}
                 variant='outline'
-                className='border-2 border-gray-300 hover:border-green-500 hover:bg-green-50'
+                className='border-2 border-gray-300 hover:border-blue-600 hover:bg-blue-600'
                 disabled={refreshing}
               >
                 <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
@@ -233,7 +233,7 @@ export default function TeacherMyStudents() {
               </Button>
               <Button
                 variant='outline'
-                className='border-2 border-gray-300 hover:border-purple-500 hover:bg-purple-50'
+                className='border-2 border-gray-300 hover:border-purple-500 hover:bg-purple-500'
                 onClick={() => navigate('/teacher/batches')}
               >
                 <UserPlus className='w-4 h-4 mr-2' />

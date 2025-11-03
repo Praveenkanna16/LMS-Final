@@ -270,7 +270,7 @@ const UsersManagement: React.FC = () => {
                 </Button>
                 <Button
                   variant='outline'
-                  className='border-2 border-gray-300 hover:border-blue-500 hover:bg-blue-50'
+                  className='border-2 border-gray-300 hover:border-blue-500 hover:bg-blue-500'
                 >
                   <Filter className='w-4 h-4 mr-2' />
                   Advanced Filters

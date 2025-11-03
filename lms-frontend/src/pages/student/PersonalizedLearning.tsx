@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+// FIX: Import Link
+import { Link, useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -103,7 +104,8 @@ const PersonalizedLearning: React.FC = () => {
         <div className='absolute bottom-20 left-20 w-96 h-96 bg-purple-200/30 rounded-full blur-3xl animate-pulse delay-1000' />
         <div className='absolute top-1/2 left-1/2 w-64 h-64 bg-indigo-200/20 rounded-full blur-3xl animate-pulse delay-500' />
 
-        <div className='relative z-10 max-w-7xl mx-auto px-4 py-8 space-y-8'>
+        {/* --- FIX #1: Added pt-40 pb-16 for navbar spacing --- */}
+        <div className='relative z-10 max-w-7xl mx-auto px-4 pt-40 pb-16 space-y-8'>
           {/* Header matching dashboard style */}
           <div className='relative'>
             <div className='absolute -top-4 -right-4 w-16 h-16 bg-gradient-to-br from-blue-400 to-purple-500 rounded-2xl rotate-12 animate-bounce opacity-20' />
@@ -312,6 +314,7 @@ const PersonalizedLearning: React.FC = () => {
               ))}
             </div>
           ) : (
+            // --- "No Paths" Empty State ---
             <Card className='bg-white/90 backdrop-blur-sm border-0 shadow-lg rounded-3xl overflow-hidden'>
               <CardHeader className='text-center pt-12'>
                 <div className='w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-500 rounded-3xl flex items-center justify-center mx-auto mb-4 animate-pulse'>
@@ -330,23 +333,28 @@ const PersonalizedLearning: React.FC = () => {
                   Our AI system analyzes your learning patterns, preferences, and progress to create
                   personalized learning paths just for you.
                 </p>
+                {/* --- FIX #2: Changed Buttons to Links --- */}
                 <div className='flex justify-center gap-4'>
                   <Button
                     size='lg'
                     className='bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white'
-                    onClick={() => navigate('/student/batches')}
+                    asChild // Use asChild to pass styling to the Link
                   >
-                    <BookOpen className='w-4 h-4 mr-2' />
-                    Browse Batches
+                    <Link to='/student/batches'>
+                      <BookOpen className='w-4 h-4 mr-2' />
+                      Browse Batches
+                    </Link>
                   </Button>
                   <Button
                     size='lg'
                     variant='outline'
-                    className='border-2 border-blue-200 text-blue-600 hover:bg-blue-50'
-                    onClick={() => navigate('/courses')}
+                    className='border-2 border-blue-200 text-blue-600 hover:bg-blue-600'
+                    asChild // Use asChild to pass styling to the Link
                   >
-                    <Target className='w-4 h-4 mr-2' />
-                    Explore Courses
+                    <Link to='/courses'>
+                      <Target className='w-4 h-4 mr-2' />
+                      Explore Courses
+                    </Link>
                   </Button>
                 </div>
               </CardContent>
@@ -369,9 +377,10 @@ const PersonalizedLearning: React.FC = () => {
               </div>
             </CardHeader>
             <CardContent className='p-6'>
+              {/* --- FIX #3: Changed <button> to <Link> --- */}
               <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
-                <button
-                  onClick={() => navigate('/student/recorded-content')}
+                <Link
+                  to='/student/recorded-content'
                   className='flex flex-col items-center gap-3 p-6 rounded-2xl bg-gradient-to-br from-yellow-50 to-orange-50 border-2 border-yellow-200/50 hover:border-yellow-400 hover:shadow-lg transition-all duration-300 transform hover:scale-105 group'
                 >
                   <div className='w-12 h-12 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform'>
@@ -381,10 +390,10 @@ const PersonalizedLearning: React.FC = () => {
                   <span className='text-sm text-gray-600 text-center'>
                     Watch pre-recorded lectures
                   </span>
-                </button>
+                </Link>
 
-                <button
-                  onClick={() => navigate('/courses')}
+                <Link
+                  to='/courses'
                   className='flex flex-col items-center gap-3 p-6 rounded-2xl bg-gradient-to-br from-blue-50 to-cyan-50 border-2 border-blue-200/50 hover:border-blue-400 hover:shadow-lg transition-all duration-300 transform hover:scale-105 group'
                 >
                   <div className='w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform'>
@@ -394,10 +403,10 @@ const PersonalizedLearning: React.FC = () => {
                   <span className='text-sm text-gray-600 text-center'>
                     Browse all available courses
                   </span>
-                </button>
+                </Link>
 
-                <button
-                  onClick={() => navigate('/student/assessments')}
+                <Link
+                  to='/student/assessments'
                   className='flex flex-col items-center gap-3 p-6 rounded-2xl bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200/50 hover:border-green-400 hover:shadow-lg transition-all duration-300 transform hover:scale-105 group'
                 >
                   <div className='w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-500 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform'>
@@ -405,7 +414,7 @@ const PersonalizedLearning: React.FC = () => {
                   </div>
                   <span className='font-semibold text-gray-900'>Assessments</span>
                   <span className='text-sm text-gray-600 text-center'>Test your knowledge</span>
-                </button>
+                </Link>
               </div>
             </CardContent>
           </Card>
