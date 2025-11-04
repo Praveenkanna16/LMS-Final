@@ -1,6 +1,14 @@
+
 const express = require('express');
 const router = express.Router();
 const { authMiddleware: protect, requireRole: authorize } = require('../middleware/authMiddleware');
+
+enhancedPaymentRoutes.js
+
+const express = require('express');
+const router = express.Router();
+const { protect, authorize } = require('../middleware/auth');
+
 const {
     generatePaymentLink,
     processPayment,

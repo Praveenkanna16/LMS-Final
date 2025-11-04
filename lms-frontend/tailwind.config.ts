@@ -2,7 +2,12 @@ import type { Config } from "tailwindcss";
 
 export default {
   darkMode: ["class"],
-  content: ["./pages/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./app/**/*.{ts,tsx}", "./src/**/*.{ts,tsx}"],
+  content: [
+    "./pages/**/*.{ts,tsx}",
+    "./components/**/*.{ts,tsx}",
+    "./app/**/*.{ts,tsx}",
+    "./src/**/*.{ts,tsx}",
+  ],
   prefix: "",
   theme: {
     container: {
@@ -57,6 +62,18 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        
+        // --- ADDED STUDENT THEME COLORS ---
+        // This new object references the variables
+        // you will add to your globals.css file.
+        student: {
+          bg: "hsl(var(--student-bg))",
+          card: "hsl(var(--student-card))",
+          dark: "hsl(var(--student-dark))",
+          light: "hsl(var(--student-light))",
+        },
+        // --- END OF ADDED COLORS ---
+
       },
       borderRadius: {
         lg: "var(--radius)",
