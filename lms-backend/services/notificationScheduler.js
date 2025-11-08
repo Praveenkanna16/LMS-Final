@@ -21,7 +21,7 @@ const scheduleClassReminders = () => {
       // Find classes starting in 15-16 minutes
       const upcomingClasses = await LiveSession.findAll({
         where: {
-          scheduledAt: {
+          startTime: {
             [Op.gte]: fifteenMinutesFromNow,
             [Op.lt]: sixteenMinutesFromNow
           },
@@ -34,7 +34,7 @@ const scheduleClassReminders = () => {
         await fcmService.sendClassStartingSoonNotification(
           session.batchId,
           session.title,
-          moment(session.scheduledAt).format('hh:mm A'),
+          moment(session.startTime).format('hh:mm A'),
           session.meetingUrl
         );
         
