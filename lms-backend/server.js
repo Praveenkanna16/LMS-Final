@@ -51,7 +51,7 @@ const server = createServer(app);
 // Initialize Socket.IO
 const io = new Server(server, {
   cors: {
-    origin: ["http://localhost:8084", "http://localhost:8085", "http://localhost:8087", "http://localhost:3000"],
+    origin: ["http://localhost:8084", "http://localhost:8085", "http://localhost:8087", "http://localhost:3000", "http://localhost:4174"],
     methods: ["GET", "POST"]
   }
 });
@@ -71,7 +71,7 @@ logger.info('Database sync disabled - using existing database');
 // Security middleware
 app.use(helmet());
 app.use(cors({
-  origin: ["http://localhost:8084", "http://localhost:8085", "http://localhost:8087", "http://localhost:3000"],
+  origin: ["http://localhost:8084", "http://localhost:8085", "http://localhost:8087", "http://localhost:3000", "http://localhost:4174"],
   credentials: true
 }));
 app.use(xss());
