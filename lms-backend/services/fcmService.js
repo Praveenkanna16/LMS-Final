@@ -2,10 +2,13 @@ const admin = require('firebase-admin');
 const { FCMToken } = require('../models');
 const logger = require('../config/logger');
 
-// Initialize Firebase Admin (if not already initialized)
+// Check if notifications are enabled
+const isNotificationsEnabled = process.env.NOTIFICATIONS_ENABLED === 'true';
+
+// Initialize Firebase Admin (if enabled and not already initialized)
 let isFirebaseInitialized = false;
 
-if (!admin.apps.length) {
+if (isNotificationsEnabled && !admin.apps.length) {
   const requiredEnvVars = [
     'FIREBASE_PROJECT_ID',
     'FIREBASE_PRIVATE_KEY_ID', 

@@ -150,7 +150,7 @@ const TeacherDashboard: React.FC = () => {
                       Teacher Portal
                     </Badge>
                     <h1 className='text-5xl font-bold bg-gradient-to-r from-gray-900 via-blue-900 to-purple-900 bg-clip-text text-transparent drop-shadow-lg'>
-                      Welcome back, {user?.name}! 👨‍🏫
+                      Welcome back, {user?.name}! 
                     </h1>
                     <p className='text-xl text-gray-600 mt-2'>
                       Manage your classes and track your{' '}

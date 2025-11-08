@@ -17,6 +17,7 @@ const userRoutes = require('./routes/userRoutes');
 const courseRoutes = require('./routes/courseRoutes');
 const batchRoutes = require('./routes/batchRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
+const enhancedPaymentRoutes = require('./routes/enhancedPaymentRoutes');
 const assessmentRoutes = require('./routes/assessmentRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const notificationPreferenceRoutes = require('./routes/notificationPreferenceRoutes');
