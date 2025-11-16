@@ -9,7 +9,7 @@ class SocketService {
       return this.socket;
     }
 
-    this.socket = io('http://localhost:5001', {
+    this.socket = io('http://65.1.91.97', {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionDelay: 1000,
