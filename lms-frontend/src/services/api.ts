@@ -1,7 +1,7 @@
 import type { User, Batch } from '@/types';
 
 // API Base URL
-const API_BASE_URL = 'http://localhost:5001/api';
+const API_BASE_URL = 'http://65.1.91.97/api';
 
 interface ApiResponse<T> {
   success: boolean;
